@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 주식 추천 시스템</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>📈 AI 주식 추천 시스템</h1>
+      <p class="subtitle">기술적 분석 · 펀더멘털 분석 · Claude AI 종합 추천</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- Search Section -->
+    <section class="search-section card">
+      <div class="search-row">
+        <select id="marketSelect">
+          <option value="US">🇺🇸 미국 (US)</option>
+          <option value="KR">🇰🇷 한국 (KR)</option>
+        </select>
+        <input type="text" id="tickerInput" placeholder="티커 입력 (예: AAPL, 005930)" />
+        <button id="analyzeBtn" onclick="analyzeStock()">분석하기</button>
+      </div>
+      <div class="quick-picks">
+        <span class="quick-label">빠른 선택:</span>
+        <button class="chip" onclick="quickPick('US','AAPL')">AAPL</button>
+        <button class="chip" onclick="quickPick('US','MSFT')">MSFT</button>
+        <button class="chip" onclick="quickPick('US','NVDA')">NVDA</button>
+        <button class="chip" onclick="quickPick('US','TSLA')">TSLA</button>
+        <button class="chip" onclick="quickPick('KR','005930')">삼성전자</button>
+        <button class="chip" onclick="quickPick('KR','000660')">SK하이닉스</button>
+      </div>
+    </section>
+
+    <!-- Loading -->
+    <div id="loading" class="hidden">
+      <div class="spinner"></div>
+      <p>데이터 분석 중...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error" class="hidden error-box"></div>
+
+    <!-- Result Section -->
+    <div id="result" class="hidden">
+
+      <!-- Overview Card -->
+      <section class="card overview-card">
+        <div class="overview-left">
+          <div class="stock-name" id="stockName"></div>
+          <div class="stock-ticker" id="stockTicker"></div>
+          <div class="stock-price" id="stockPrice"></div>
+          <div class="price-changes" id="priceChanges"></div>
+        </div>
+        <div class="overview-right">
+          <div class="score-ring-wrap">
+            <canvas id="scoreGauge" width="160" height="160"></canvas>
+            <div class="score-label">
+              <span id="scoreValue"></span>
+              <small>종합점수</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- AI Recommendation Card -->
+      <section class="card ai-card" id="aiCard">
+        <h2>🤖 AI 추천</h2>
+        <div class="ai-content">
+          <div class="rec-badge" id="recBadge"></div>
+          <div class="ai-summary" id="aiSummary"></div>
+          <div class="ai-reasoning" id="aiReasoning"></div>
+          <div class="ai-meta" id="aiMeta"></div>
+          <div class="ai-lists" id="aiLists"></div>
+        </div>
+      </section>
+
+      <!-- Scores Row -->
+      <div class="two-col">
+        <section class="card">
+          <h2>📊 기술적 분석 <span class="score-chip" id="techScore"></span></h2>
+          <div id="techSignals" class="signals-list"></div>
+        </section>
+        <section class="card">
+          <h2>📋 펀더멘털 분석 <span class="score-chip" id="fundScore"></span></h2>
+          <div id="fundSignals" class="signals-list"></div>
+          <div id="fundMetrics" class="metrics-grid"></div>
+        </section>
+      </div>
+
+      <!-- Chart Section -->
+      <section class="card chart-section">
+        <div class="chart-tabs">
+          <button class="tab-btn active" onclick="showChart('price')">가격 차트</button>
+          <button class="tab-btn" onclick="showChart('rsi')">RSI</button>
+          <button class="tab-btn" onclick="showChart('macd')">MACD</button>
+          <button class="tab-btn" onclick="showChart('volume')">거래량</button>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="mainChart"></canvas>
+        </div>
+      </section>
+
+      <!-- Technical Indicators Table -->
+      <section class="card">
+        <h2>📐 기술적 지표</h2>
+        <div class="indicators-grid" id="indicatorsGrid"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer>
+    <p>⚠️ 이 서비스는 투자 참고용이며, 투자 결정에 대한 책임은 본인에게 있습니다.</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
