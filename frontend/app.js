@@ -364,6 +364,51 @@ function showChart(type, btnEl) {
   }
 }
 
-document.getElementById('tickerInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') analyzeStock();
+// ── 검색 드롭다운 ──────────────────────────────────
+let searchTimer = null;
+
+const tickerInput = document.getElementById('tickerInput');
+const dropdown = document.getElementById('searchDropdown');
+
+tickerInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = tickerInput.value.trim();
+  if (q.length < 1) { dropdown.classList.add('hidden'); return; }
+  searchTimer = setTimeout(() => fetchSearch(q), 300);
 });
+
+tickerInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { dropdown.classList.add('hidden'); analyzeStock(); }
+  if (e.key === 'Escape') dropdown.classList.add('hidden');
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.input-wrap')) dropdown.classList.add('hidden');
+});
+
+async function fetchSearch(query) {
+  const market = document.getElementById('marketSelect').value;
+  try {
+    const res = await fetch(`${API}/api/search?query=${encodeURIComponent(query)}&market=${market}`);
+    const data = await res.json();
+    renderDropdown(data.results || []);
+  } catch { dropdown.classList.add('hidden'); }
+}
+
+function renderDropdown(results) {
+  if (!results.length) { dropdown.classList.add('hidden'); return; }
+  dropdown.innerHTML = results.map(r => `
+    <div class="search-item" onclick="selectStock('${r.market}','${r.ticker}')">
+      <span class="search-item-ticker">${r.ticker}</span>
+      <span class="search-item-name">${r.name}</span>
+      <span class="search-item-market">${r.market}</span>
+    </div>`).join('');
+  dropdown.classList.remove('hidden');
+}
+
+function selectStock(market, ticker) {
+  document.getElementById('marketSelect').value = market;
+  tickerInput.value = ticker;
+  dropdown.classList.add('hidden');
+  analyzeStock();
+}

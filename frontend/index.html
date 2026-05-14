@@ -23,7 +23,10 @@
           <option value="US">🇺🇸 미국 (US)</option>
           <option value="KR">🇰🇷 한국 (KR)</option>
         </select>
-        <input type="text" id="tickerInput" placeholder="티커 입력 (예: AAPL, 005930)" />
+        <div class="input-wrap">
+          <input type="text" id="tickerInput" placeholder="종목명 또는 티커 입력 (예: Apple, AAPL, 삼성)" autocomplete="off" />
+          <div id="searchDropdown" class="search-dropdown hidden"></div>
+        </div>
         <button id="analyzeBtn" onclick="analyzeStock()">분석하기</button>
       </div>
       <div class="quick-picks">

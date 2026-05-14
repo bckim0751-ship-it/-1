@@ -25,11 +25,14 @@ frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
-# Top5 종목 풀 (한국 + 미국 인기 종목) — KR 종목명은 하드코딩으로 보완
+# Top5 종목 풀 — 한국 + 미국 주요 종목 30개
 TOP5_CANDIDATES = [
     ("US", "AAPL"), ("US", "MSFT"), ("US", "NVDA"), ("US", "TSLA"), ("US", "GOOGL"),
-    ("US", "META"), ("US", "AMZN"), ("US", "AMD"),
+    ("US", "META"), ("US", "AMZN"), ("US", "AMD"), ("US", "NFLX"), ("US", "JPM"),
+    ("US", "V"), ("US", "MA"), ("US", "AVGO"), ("US", "ORCL"), ("US", "CRM"),
     ("KR", "005930"), ("KR", "000660"), ("KR", "035420"), ("KR", "005380"), ("KR", "051910"),
+    ("KR", "035720"), ("KR", "000270"), ("KR", "068270"), ("KR", "373220"), ("KR", "086520"),
+    ("KR", "042700"), ("KR", "009540"), ("KR", "105560"), ("KR", "055550"), ("KR", "003550"),
 ]
 
 KR_NAME_MAP = {
