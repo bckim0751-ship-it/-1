@@ -45,7 +45,8 @@ def get_kr_stock_data(ticker: str, period_days: int = 365) -> dict:
             return {"error": f"No data found for KR ticker {ticker}"}
 
         hist.index = pd.to_datetime(hist.index)
-        hist.columns = ["Open", "High", "Low", "Close", "Volume"]
+        col_map = {hist.columns[0]: "Open", hist.columns[1]: "High", hist.columns[2]: "Low", hist.columns[3]: "Close", hist.columns[4]: "Volume"}
+        hist = hist.rename(columns=col_map)[["Open", "High", "Low", "Close", "Volume"]]
 
         # Fundamental data
         fundamental = _get_kr_fundamental(ticker)
