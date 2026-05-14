@@ -85,8 +85,9 @@ async function analyzeStock() {
   try {
     const res = await fetch(`${API}/api/analyze/${market}/${ticker}`);
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || '분석 실패');
+      let msg = '분석 실패';
+      try { const err = await res.json(); msg = err.detail || msg; } catch {}
+      throw new Error(msg);
     }
     const data = await res.json();
     showResult(data);
@@ -390,7 +391,10 @@ async function fetchSearch(query) {
   const market = document.getElementById('marketSelect').value;
   try {
     const res = await fetch(`${API}/api/search?query=${encodeURIComponent(query)}&market=${market}`);
-    const data = await res.json();
+    if (!res.ok) { dropdown.classList.add('hidden'); return; }
+    const text = await res.text();
+    if (!text) { dropdown.classList.add('hidden'); return; }
+    const data = JSON.parse(text);
     renderDropdown(data.results || []);
   } catch { dropdown.classList.add('hidden'); }
 }

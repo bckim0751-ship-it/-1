@@ -167,18 +167,18 @@ def search_us_tickers(keyword: str) -> list[dict]:
 
     # 내장 리스트에 없으면 yfinance Search 시도
     try:
+        import json as _json
         search = yf.Search(keyword, max_results=8)
         quotes = search.quotes if hasattr(search, "quotes") else []
         for q in quotes:
             symbol = q.get("symbol", "")
             name = q.get("shortname") or q.get("longname") or symbol
             exchange = q.get("exchange", "")
-            # 미국 주식만 필터 (나스닥/NYSE)
-            if exchange in ("NMS", "NYQ", "NGM", "PCX", "BTS") and symbol:
+            if exchange in ("NMS", "NYQ", "NGM", "PCX", "BTS", "NAS") and symbol:
                 results.append({"ticker": symbol, "name": name, "market": "US"})
         if results:
             return results[:10]
-    except Exception:
+    except (_json.JSONDecodeError, Exception):
         pass
 
     # 정확한 티커로 직접 조회
