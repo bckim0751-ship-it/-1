@@ -1,10 +1,19 @@
 import yfinance as yf
 import pandas as pd
 try:
+    from curl_cffi import requests as curl_requests
+    _curl_session = curl_requests.Session(impersonate="chrome110")
+    CURL_AVAILABLE = True
+except Exception:
+    _curl_session = None
+    CURL_AVAILABLE = False
+
+try:
     import FinanceDataReader as fdr
     FDR_AVAILABLE = True
 except ImportError:
     FDR_AVAILABLE = False
+
 from pykrx import stock as krx_stock
 from datetime import datetime, timedelta
 
@@ -45,13 +54,26 @@ def _get_fdr(ticker: str, period_days: int = 400) -> pd.DataFrame:
 
 def get_us_stock_data(ticker: str, period: str = "1y") -> dict:
     ticker = ticker.upper()
-    # Try FinanceDataReader first (stooq source, no rate limit)
-    hist = _get_fdr(ticker)
-    if hist.empty:
-        # Fallback: yfinance
+    hist = pd.DataFrame()
+
+    # 1순위: curl_cffi로 Chrome 흉내 → Yahoo Finance 차단 우회
+    if CURL_AVAILABLE and _curl_session:
         try:
-            t = yf.Ticker(ticker)
+            t = yf.Ticker(ticker, session=_curl_session)
             raw = t.history(period=period)
+            if not raw.empty:
+                hist = _normalize_hist(raw)
+        except Exception:
+            pass
+
+    # 2순위: FinanceDataReader (stooq)
+    if hist.empty:
+        hist = _get_fdr(ticker)
+
+    # 3순위: yfinance 기본
+    if hist.empty:
+        try:
+            raw = yf.Ticker(ticker).history(period=period)
             if not raw.empty:
                 hist = _normalize_hist(raw)
         except Exception:
