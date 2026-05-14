@@ -36,7 +36,8 @@ def get_kr_stock_data(ticker: str, period_days: int = 365) -> dict:
 
         # Try to get ticker name
         try:
-            name = str(krx_stock.get_market_ticker_name(ticker))
+            raw_name = krx_stock.get_market_ticker_name(ticker)
+            name = raw_name if isinstance(raw_name, str) and raw_name.strip() else ticker
         except Exception:
             name = ticker
 

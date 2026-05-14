@@ -25,12 +25,18 @@ frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
-# Top5 종목 풀 (한국 + 미국 인기 종목)
+# Top5 종목 풀 (한국 + 미국 인기 종목) — KR 종목명은 하드코딩으로 보완
 TOP5_CANDIDATES = [
     ("US", "AAPL"), ("US", "MSFT"), ("US", "NVDA"), ("US", "TSLA"), ("US", "GOOGL"),
     ("US", "META"), ("US", "AMZN"), ("US", "AMD"),
     ("KR", "005930"), ("KR", "000660"), ("KR", "035420"), ("KR", "005380"), ("KR", "051910"),
 ]
+
+KR_NAME_MAP = {
+    "005930": "삼성전자", "000660": "SK하이닉스", "035420": "NAVER",
+    "005380": "현대차", "051910": "LG화학", "035720": "카카오",
+    "000270": "기아", "068270": "셀트리온", "207940": "삼성바이오로직스",
+}
 
 # 1시간 캐시
 _top5_cache: dict = {"data": None, "ts": 0}
@@ -42,6 +48,9 @@ def _analyze_one(market: str, ticker: str) -> Optional[dict]:
         data = get_us_stock_data(ticker) if market == "US" else get_kr_stock_data(ticker)
         if "error" in data:
             return None
+        # KR 종목명이 잘못 파싱된 경우 하드코딩 이름으로 대체
+        if market == "KR" and ticker in KR_NAME_MAP:
+            data["name"] = KR_NAME_MAP[ticker]
         technical = analyze_technical(data["history"])
         fundamental = analyze_fundamental(data["info"], market)
         combined_score = round((technical["score"] + fundamental["score"]) / 2)
