@@ -16,7 +16,7 @@
   </header>
 
   <main>
-    <!-- Search Section -->
+    <!-- Search -->
     <section class="search-section card">
       <div class="search-row">
         <select id="marketSelect">
@@ -24,48 +24,71 @@
           <option value="KR">🇰🇷 한국 (KR)</option>
         </select>
         <div class="input-wrap">
-          <input type="text" id="tickerInput" placeholder="종목명 또는 티커 입력 (예: Apple, AAPL, 삼성)" autocomplete="off" />
+          <input type="text" id="tickerInput" placeholder="종목명 또는 티커 (예: Apple, AAPL, 삼성)" autocomplete="off" />
           <div id="searchDropdown" class="search-dropdown hidden"></div>
         </div>
-        <button id="analyzeBtn" onclick="analyzeStock()">분석하기</button>
+        <button onclick="analyzeStock()">분석하기</button>
       </div>
       <div class="quick-picks">
         <span class="quick-label">빠른 선택:</span>
         <button class="chip" onclick="quickPick('US','AAPL')">AAPL</button>
-        <button class="chip" onclick="quickPick('US','MSFT')">MSFT</button>
         <button class="chip" onclick="quickPick('US','NVDA')">NVDA</button>
         <button class="chip" onclick="quickPick('US','TSLA')">TSLA</button>
         <button class="chip" onclick="quickPick('KR','005930')">삼성전자</button>
         <button class="chip" onclick="quickPick('KR','000660')">SK하이닉스</button>
+        <button class="chip" onclick="quickPick('KR','035420')">NAVER</button>
       </div>
     </section>
 
-    <!-- Top 5 Section -->
-    <section class="card top5-section">
-      <div class="top5-header">
-        <h2>🏆 AI 추천 종목 TOP 5</h2>
-        <button class="refresh-btn" onclick="loadTop5(true)" id="refreshBtn">↻ 새로고침</button>
+    <!-- TOP10 섹션 -->
+    <section class="card top10-section">
+      <div class="top10-header">
+        <div>
+          <h2>🏆 1~3개월 상승 예상 추천 종목</h2>
+          <p class="top10-desc">기술적·펀더멘털·모멘텀 종합 분석 기반 · 매 3시간 갱신</p>
+        </div>
+        <button class="refresh-btn" onclick="loadTop10(true)" id="refreshBtn">↻ 새로고침</button>
       </div>
-      <p class="top5-desc">한국·미국 인기 종목 중 기술적·펀더멘털 분석 종합점수 상위 5개</p>
-      <div id="top5Loading" class="top5-loading">
-        <div class="spinner-sm"></div> 분석 중... (최대 30초 소요)
+
+      <div id="top10Loading" class="top10-loading">
+        <div class="spinner"></div>
+        <div>
+          <p>전 세계 주요 종목 분석 중...</p>
+          <p class="loading-sub">한국 30개 + 미국 30개 종목 점수 산출 중 (최대 1분 소요)</p>
+        </div>
       </div>
-      <div id="top5List" class="top5-list hidden"></div>
+
+      <div id="top10Content" class="hidden">
+        <div class="top10-grid">
+          <!-- KR -->
+          <div class="top10-col">
+            <div class="top10-col-header">
+              <span class="flag">🇰🇷</span> 국내 TOP 10
+            </div>
+            <div id="krList" class="top10-list"></div>
+          </div>
+          <!-- US -->
+          <div class="top10-col">
+            <div class="top10-col-header">
+              <span class="flag">🇺🇸</span> 해외 TOP 10
+            </div>
+            <div id="usList" class="top10-list"></div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- Loading -->
-    <div id="loading" class="hidden">
+    <div id="loading" class="loading-overlay hidden">
       <div class="spinner"></div>
-      <p>데이터 분석 중...</p>
+      <p>종목 분석 중...</p>
     </div>
 
     <!-- Error -->
     <div id="error" class="hidden error-box"></div>
 
-    <!-- Result Section -->
+    <!-- Result -->
     <div id="result" class="hidden">
-
-      <!-- Overview Card -->
       <section class="card overview-card">
         <div class="overview-left">
           <div class="stock-name" id="stockName"></div>
@@ -84,8 +107,7 @@
         </div>
       </section>
 
-      <!-- AI Recommendation Card -->
-      <section class="card ai-card" id="aiCard">
+      <section class="card ai-card">
         <h2>🤖 AI 추천</h2>
         <div class="ai-content">
           <div class="rec-badge" id="recBadge"></div>
@@ -96,7 +118,6 @@
         </div>
       </section>
 
-      <!-- Scores Row -->
       <div class="two-col">
         <section class="card">
           <h2>📊 기술적 분석 <span class="score-chip" id="techScore"></span></h2>
@@ -109,7 +130,6 @@
         </section>
       </div>
 
-      <!-- Chart Section -->
       <section class="card chart-section">
         <div class="chart-tabs">
           <button class="tab-btn active" onclick="showChart('price', this)">가격 차트</button>
@@ -117,22 +137,18 @@
           <button class="tab-btn" onclick="showChart('macd', this)">MACD</button>
           <button class="tab-btn" onclick="showChart('volume', this)">거래량</button>
         </div>
-        <div class="chart-wrap">
-          <canvas id="mainChart"></canvas>
-        </div>
+        <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
       </section>
 
-      <!-- Technical Indicators Table -->
       <section class="card">
         <h2>📐 기술적 지표</h2>
         <div class="indicators-grid" id="indicatorsGrid"></div>
       </section>
-
     </div>
   </main>
 
   <footer>
-    <p>⚠️ 이 서비스는 투자 참고용이며, 투자 결정에 대한 책임은 본인에게 있습니다.</p>
+    <p>⚠️ 투자 참고용이며, 투자 결정에 대한 책임은 본인에게 있습니다.</p>
   </footer>
 
   <script src="/static/app.js"></script>

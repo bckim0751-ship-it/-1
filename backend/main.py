@@ -6,14 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from typing import Optional
-import yfinance as yf
 
-from stock_data import get_us_stock_data, get_kr_stock_data, search_kr_tickers, search_us_tickers
+from stock_data import (
+    get_us_stock_data, get_kr_stock_data,
+    search_kr_tickers, search_us_tickers,
+    KR_BUILTIN, US_BUILTIN,
+)
 from technical_analysis import analyze_technical
 from fundamental_analysis import analyze_fundamental
 from ai_recommendation import get_ai_recommendation
 
-app = FastAPI(title="BC_STOCK", version="1.0.0")
+app = FastAPI(title="BC_STOCK", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,137 +29,127 @@ frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
-# Top5 종목 풀 — 한국 + 미국 주요 종목 30개
-TOP5_CANDIDATES = [
-    ("US", "AAPL"), ("US", "MSFT"), ("US", "NVDA"), ("US", "TSLA"), ("US", "GOOGL"),
-    ("US", "META"), ("US", "AMZN"), ("US", "AMD"), ("US", "NFLX"), ("US", "JPM"),
-    ("US", "V"), ("US", "MA"), ("US", "AVGO"), ("US", "ORCL"), ("US", "CRM"),
-    ("KR", "005930"), ("KR", "000660"), ("KR", "035420"), ("KR", "005380"), ("KR", "051910"),
-    ("KR", "035720"), ("KR", "000270"), ("KR", "068270"), ("KR", "373220"), ("KR", "086520"),
-    ("KR", "042700"), ("KR", "009540"), ("KR", "105560"), ("KR", "055550"), ("KR", "003550"),
+# ── 후보 종목 ────────────────────────────────────────────────────────────────
+KR_CANDIDATES = [t for t, _ in KR_BUILTIN[:30]]
+US_CANDIDATES = [
+    "AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","AMD","NFLX","JPM",
+    "V","MA","AVGO","ORCL","CRM","ADBE","QCOM","MU","UBER","PLTR",
+    "ARM","SMCI","SHOP","COIN","BAC","GS","XOM","LLY","UNH","COST",
 ]
 
-KR_NAME_MAP = {
-    "005930": "삼성전자", "000660": "SK하이닉스", "035420": "NAVER",
-    "005380": "현대차", "051910": "LG화학", "035720": "카카오",
-    "000270": "기아", "068270": "셀트리온", "207940": "삼성바이오로직스",
-    "006400": "삼성SDI", "028260": "삼성물산", "105560": "KB금융",
-    "055550": "신한지주", "032830": "삼성생명", "003550": "LG",
-    "017670": "SK텔레콤", "030200": "KT", "096770": "SK이노베이션",
-    "373220": "LG에너지솔루션", "086520": "에코프로", "042700": "한미반도체",
-    "009540": "HD한국조선해양", "247540": "에코프로비엠", "091990": "셀트리온헬스케어",
-}
-
-# 3시간 캐시
-_top5_cache: dict = {"data": None, "ts": 0}
-_CACHE_TTL = 10800
-
-US_TICKERS = ["AAPL", "MSFT", "NVDA", "TSLA", "GOOGL", "META", "AMZN", "AMD", "NFLX", "JPM", "V", "AVGO", "ORCL", "CRM", "MA"]
-KR_TICKERS = ["005930", "000660", "035420", "005380", "051910", "035720", "000270", "068270", "373220", "086520", "042700", "009540", "105560", "055550", "003550"]
-
-US_NAME_MAP = {
-    "AAPL": "Apple", "MSFT": "Microsoft", "NVDA": "NVIDIA", "TSLA": "Tesla",
-    "GOOGL": "Alphabet", "META": "Meta", "AMZN": "Amazon", "AMD": "AMD",
-    "NFLX": "Netflix", "JPM": "JPMorgan", "V": "Visa", "AVGO": "Broadcom",
-    "ORCL": "Oracle", "CRM": "Salesforce", "MA": "Mastercard",
-}
+_cache: dict = {"kr": None, "us": None, "ts": 0}
+_CACHE_TTL = 10800  # 3시간
 
 
-def _fetch_us_batch() -> list[dict]:
-    """미국 종목 전체를 yf.download 단일 호출로 가져와 429 회피."""
+def _score_stock(ticker: str, market: str, name: str) -> Optional[dict]:
+    """종목 하나를 분석하고 1~3개월 상승 가능성 점수와 함께 반환."""
     try:
-        raw = yf.download(
-            US_TICKERS, period="1y", auto_adjust=True,
-            group_by="ticker", progress=False, threads=False
-        )
-        results = []
-        for ticker in US_TICKERS:
-            try:
-                if len(US_TICKERS) == 1:
-                    hist = raw
-                else:
-                    hist = raw[ticker].dropna()
-                if hist.empty or len(hist) < 30:
-                    continue
-                hist.columns = [c if isinstance(c, str) else c[0] for c in hist.columns]
-                technical = analyze_technical(hist)
-                score = technical["score"]
-                price_changes = technical.get("price_changes", {})
-                results.append({
-                    "ticker": ticker,
-                    "name": US_NAME_MAP.get(ticker, ticker),
-                    "market": "US",
-                    "current_price": round(float(hist["Close"].iloc[-1]), 2),
-                    "currency": "USD",
-                    "combined_score": score,
-                    "recommendation": "BUY" if score >= 60 else ("SELL" if score <= 40 else "HOLD"),
-                    "price_change_1d": price_changes.get("1d", 0),
-                    "price_change_1m": price_changes.get("1m", 0),
-                })
-            except Exception:
-                continue
-        return results
-    except Exception:
-        return []
-
-
-def _analyze_kr_one(ticker: str) -> Optional[dict]:
-    try:
-        data = get_kr_stock_data(ticker)
+        data = get_us_stock_data(ticker) if market == "US" else get_kr_stock_data(ticker)
         if "error" in data:
             return None
-        name = KR_NAME_MAP.get(ticker, data["name"])
-        technical = analyze_technical(data["history"])
-        fundamental = analyze_fundamental(data["info"], "KR")
-        combined_score = round((technical["score"] + fundamental["score"]) / 2)
-        price_changes = technical.get("price_changes", {})
+
+        hist = data["history"]
+        if len(hist) < 60:
+            return None
+
+        tech = analyze_technical(hist)
+        fund = analyze_fundamental(data["info"], market)
+        price_changes = tech.get("price_changes", {})
+        ind = tech.get("indicators", {})
+
+        # 1~3개월 상승 가능성 보너스 점수
+        bonus = 0
+        rsi = ind.get("rsi", 50) or 50
+        macd = ind.get("macd", 0) or 0
+        macd_sig = ind.get("macd_signal", 0) or 0
+        change_1m = price_changes.get("1m", 0) or 0
+        change_3m = price_changes.get("3m", 0) or 0
+
+        # RSI 과매도 회복 구간 (매수 타이밍)
+        if 30 <= rsi <= 50:
+            bonus += 15
+        elif rsi < 30:
+            bonus += 10
+
+        # MACD 상향 돌파
+        if macd > macd_sig and macd > 0:
+            bonus += 10
+        elif macd > macd_sig and macd < 0:
+            bonus += 5  # 바닥에서 회복 중
+
+        # 1개월 하락 후 반등 가능성 (역발상 투자)
+        if -20 <= change_1m <= -5:
+            bonus += 10
+        elif -5 < change_1m <= 5:
+            bonus += 5  # 횡보 후 돌파 대기
+
+        # 3개월 기준 저점 회복 중
+        if -30 <= change_3m <= -10:
+            bonus += 8
+
+        combined = round((tech["score"] + fund["score"]) / 2 + bonus * 0.3)
+        combined = max(0, min(100, combined))
+
+        rec = "BUY" if combined >= 62 else ("SELL" if combined <= 38 else "HOLD")
+
         return {
-            "ticker": ticker,
-            "name": name,
-            "market": "KR",
+            "ticker": data["ticker"],
+            "name": name or data["name"],
+            "market": market,
             "current_price": data["current_price"],
-            "currency": "KRW",
-            "combined_score": combined_score,
-            "recommendation": "BUY" if combined_score >= 60 else ("SELL" if combined_score <= 40 else "HOLD"),
-            "price_change_1d": price_changes.get("1d", 0),
-            "price_change_1m": price_changes.get("1m", 0),
+            "currency": data["currency"],
+            "combined_score": combined,
+            "tech_score": tech["score"],
+            "fund_score": fund["score"],
+            "recommendation": rec,
+            "price_change_1d": round(price_changes.get("1d", 0), 2),
+            "price_change_1w": round(price_changes.get("1w", 0), 2),
+            "price_change_1m": round(price_changes.get("1m", 0), 2),
+            "price_change_3m": round(price_changes.get("3m", 0), 2),
+            "rsi": round(rsi, 1),
         }
     except Exception:
         return None
 
 
+def _build_top10(candidates: list[tuple], market: str, workers: int = 4) -> list[dict]:
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_score_stock, t, market, n): t for t, n in candidates}
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
+    return sorted(results, key=lambda x: x["combined_score"], reverse=True)[:10]
+
+
+# ── Routes ──────────────────────────────────────────────────────────────────
+
 @app.get("/")
 async def root():
-    index_path = os.path.join(frontend_path, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "BC_STOCK API", "docs": "/docs"}
+    idx = os.path.join(frontend_path, "index.html")
+    return FileResponse(idx) if os.path.exists(idx) else {"message": "BC_STOCK"}
 
 
-@app.get("/api/top5")
-async def get_top5():
-    """미국은 batch 다운로드, 한국은 순차 분석 후 TOP5 반환 (3시간 캐시)."""
+@app.get("/api/top10")
+async def get_top10():
+    """KR TOP10 + US TOP10 반환 (3시간 캐시)."""
     now = time.time()
-    if _top5_cache["data"] and now - _top5_cache["ts"] < _CACHE_TTL:
-        return {"stocks": _top5_cache["data"], "cached": True}
+    if _cache["kr"] and _cache["us"] and now - _cache["ts"] < _CACHE_TTL:
+        return {"kr": _cache["kr"], "us": _cache["us"], "cached": True}
 
-    # 미국: 단일 batch 요청 (429 방지)
-    us_results = _fetch_us_batch()
+    kr_candidates = [(t, n) for t, n in KR_BUILTIN if t in KR_CANDIDATES]
+    us_name_map = {t: n for t, n in __import__("stock_data").US_BUILTIN}
+    us_candidates = [(t, us_name_map.get(t, t)) for t in US_CANDIDATES]
 
-    # 한국: 순차 처리 (pykrx rate limit 고려)
-    kr_results = []
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(_analyze_kr_one, t): t for t in KR_TICKERS}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                kr_results.append(result)
+    # KR: 순차 처리(pykrx), US: 병렬(FDR/stooq)
+    kr_top10 = _build_top10(kr_candidates, "KR", workers=3)
+    us_top10 = _build_top10(us_candidates, "US", workers=5)
 
-    all_results = us_results + kr_results
-    top5 = sorted(all_results, key=lambda x: x["combined_score"], reverse=True)[:5]
-    _top5_cache["data"] = top5
-    _top5_cache["ts"] = now
-    return {"stocks": top5, "cached": False}
+    _cache["kr"] = kr_top10
+    _cache["us"] = us_top10
+    _cache["ts"] = now
+    return {"kr": kr_top10, "us": us_top10, "cached": False}
 
 
 @app.get("/api/search")
@@ -172,51 +165,38 @@ async def search_stocks(query: str, market: Optional[str] = None):
 @app.get("/api/analyze/{market}/{ticker}")
 async def analyze_stock(market: str, ticker: str):
     market = market.upper()
-
     if market == "US":
         data = get_us_stock_data(ticker)
     elif market == "KR":
         data = get_kr_stock_data(ticker)
     else:
-        raise HTTPException(status_code=400, detail="Market must be 'US' or 'KR'")
+        raise HTTPException(400, "Market must be 'US' or 'KR'")
 
     if "error" in data:
-        raise HTTPException(status_code=404, detail=data["error"])
+        raise HTTPException(404, data["error"])
 
-    technical = analyze_technical(data["history"])
-    fundamental = analyze_fundamental(data["info"], market)
-
+    tech = analyze_technical(data["history"])
+    fund = analyze_fundamental(data["info"], market)
     ai = get_ai_recommendation(
-        ticker=data["ticker"],
-        name=data["name"],
-        market=market,
-        current_price=data["current_price"],
-        currency=data["currency"],
-        technical=technical,
-        fundamental=fundamental,
-        price_changes=technical.get("price_changes", {}),
+        ticker=data["ticker"], name=data["name"], market=market,
+        current_price=data["current_price"], currency=data["currency"],
+        technical=tech, fundamental=fund,
+        price_changes=tech.get("price_changes", {}),
     )
-
-    combined_score = round((technical["score"] + fundamental["score"]) / 2)
+    combined_score = round((tech["score"] + fund["score"]) / 2)
 
     return {
-        "ticker": data["ticker"],
-        "name": data["name"],
-        "market": market,
-        "current_price": data["current_price"],
-        "currency": data["currency"],
-        "combined_score": combined_score,
+        "ticker": data["ticker"], "name": data["name"],
+        "market": market, "current_price": data["current_price"],
+        "currency": data["currency"], "combined_score": combined_score,
         "technical": {
-            "score": technical["score"],
-            "signals": technical["signals"],
-            "indicators": technical["indicators"],
-            "price_changes": technical["price_changes"],
-            "chart_data": technical["chart_data"],
+            "score": tech["score"], "signals": tech["signals"],
+            "indicators": tech["indicators"], "price_changes": tech["price_changes"],
+            "chart_data": tech["chart_data"],
         },
         "fundamental": {
-            "score": fundamental["score"],
-            "signals": fundamental["signals"],
-            "metrics": fundamental["metrics"],
+            "score": fund["score"], "signals": fund["signals"],
+            "metrics": fund["metrics"],
         },
         "ai_recommendation": ai,
     }
@@ -224,5 +204,4 @@ async def analyze_stock(market: str, ticker: str):
 
 @app.get("/api/health")
 async def health():
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    return {"status": "ok", "ai_enabled": has_api_key}
+    return {"status": "ok", "ai_enabled": bool(os.environ.get("ANTHROPIC_API_KEY"))}
