@@ -77,18 +77,21 @@ def _compute_top10():
     _cache["computing"] = True
     try:
         kr_results, us_results = [], []
-        # KR: 워커 3개
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            futures = {ex.submit(_score_stock, t, "KR", n): t for t, n in KR_CANDIDATES}
-            for f in as_completed(futures):
-                r = f.result()
-                if r: kr_results.append(r)
-        # US: 워커 4개
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            futures = {ex.submit(_score_stock, t, "US", n): t for t, n in US_CANDIDATES}
-            for f in as_completed(futures):
-                r = f.result()
-                if r: us_results.append(r)
+
+        # KR: pykrx는 순차 처리
+        for t, n in KR_CANDIDATES:
+            r = _score_stock(t, "KR", n)
+            if r:
+                kr_results.append(r)
+            time.sleep(0.3)
+
+        # US: stooq 429 방지 — 순차 + 딜레이
+        for t, n in US_CANDIDATES:
+            r = _score_stock(t, "US", n)
+            if r:
+                us_results.append(r)
+            time.sleep(1.0)
+
         _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
         _cache["us"] = sorted(us_results, key=lambda x: x["combined_score"], reverse=True)[:10]
         _cache["ts"] = time.time()
