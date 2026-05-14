@@ -3,11 +3,75 @@ let mainChart = null;
 let chartData = null;
 let gaugeChart = null;
 
+// ── TOP 5 ──────────────────────────────────────────
+async function loadTop5(forceRefresh = false) {
+  const listEl = document.getElementById('top5List');
+  const loadingEl = document.getElementById('top5Loading');
+  const refreshBtn = document.getElementById('refreshBtn');
+
+  listEl.classList.add('hidden');
+  loadingEl.classList.remove('hidden');
+  refreshBtn.disabled = true;
+
+  try {
+    const url = forceRefresh ? `${API}/api/top5?_=${Date.now()}` : `${API}/api/top5`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('TOP5 로드 실패');
+    const data = await res.json();
+    renderTop5(data.stocks);
+  } catch (e) {
+    loadingEl.textContent = '⚠️ TOP5 로드 실패. 새로고침을 눌러주세요.';
+  } finally {
+    loadingEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    refreshBtn.disabled = false;
+  }
+}
+
+function renderTop5(stocks) {
+  const listEl = document.getElementById('top5List');
+  const rankLabels = ['gold', 'silver', 'bronze', '', ''];
+  const rankEmoji = ['1', '2', '3', '4', '5'];
+
+  listEl.innerHTML = stocks.map((s, i) => {
+    const priceStr = s.currency === 'KRW'
+      ? s.current_price.toLocaleString('ko-KR') + ' 원'
+      : '$' + s.current_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const changeSign = s.price_change_1d > 0 ? '+' : '';
+    const changeCls = s.price_change_1d > 0 ? 'up' : s.price_change_1d < 0 ? 'down' : 'flat';
+    const recClass = `top5-rec-${s.recommendation.toLowerCase()}`;
+    const recLabel = s.recommendation === 'BUY' ? '매수' : s.recommendation === 'SELL' ? '매도' : '보류';
+    const scoreCls = s.combined_score >= 65 ? 'up' : s.combined_score <= 40 ? 'down' : '';
+
+    return `
+    <div class="top5-item" onclick="quickPick('${s.market}','${s.ticker}')">
+      <div class="top5-rank ${rankLabels[i]}">${rankEmoji[i]}</div>
+      <div class="top5-info">
+        <div class="top5-name">${s.name}</div>
+        <div class="top5-ticker">${s.ticker} · ${s.market}</div>
+      </div>
+      <div class="top5-price">
+        <div class="top5-price-val">${priceStr}</div>
+        <div class="top5-change ${changeCls}">${changeSign}${s.price_change_1d}% 오늘</div>
+      </div>
+      <div class="top5-score">
+        <div class="top5-score-val ${scoreCls}">${s.combined_score}</div>
+        <div class="top5-score-label">점수</div>
+      </div>
+      <div class="top5-rec ${recClass}">${recLabel}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── 검색 ───────────────────────────────────────────
 function quickPick(market, ticker) {
   document.getElementById('marketSelect').value = market;
   document.getElementById('tickerInput').value = ticker;
   analyzeStock();
 }
+
+// 페이지 로드 시 TOP5 자동 로드
+window.addEventListener('DOMContentLoaded', () => loadTop5());
 
 async function analyzeStock() {
   const market = document.getElementById('marketSelect').value;

@@ -264,6 +264,97 @@ h2 { font-size: 16px; font-weight: 600; margin-bottom: 14px; display: flex; alig
 
 .hidden { display: none !important; }
 
+/* Top 5 */
+.top5-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.top5-desc { color: var(--text2); font-size: 13px; margin-bottom: 16px; }
+
+.refresh-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.top5-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text2);
+  font-size: 14px;
+  padding: 16px 0;
+}
+.spinner-sm {
+  width: 18px; height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.top5-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.top5-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.top5-item:hover { border-color: var(--accent); background: rgba(108,99,255,0.06); }
+
+.top5-rank {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text2);
+  min-width: 28px;
+  text-align: center;
+}
+.top5-rank.gold { color: #f59e0b; }
+.top5-rank.silver { color: #9ba3bf; }
+.top5-rank.bronze { color: #cd7c3a; }
+
+.top5-info { flex: 1; }
+.top5-name { font-size: 15px; font-weight: 600; }
+.top5-ticker { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+.top5-price { text-align: right; }
+.top5-price-val { font-size: 15px; font-weight: 700; color: var(--accent); }
+.top5-change { font-size: 12px; margin-top: 2px; }
+
+.top5-score {
+  text-align: center;
+  min-width: 52px;
+}
+.top5-score-val { font-size: 20px; font-weight: 800; }
+.top5-score-label { font-size: 11px; color: var(--text2); }
+
+.top5-rec {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+  min-width: 52px;
+  text-align: center;
+}
+.top5-rec-buy { background: rgba(34,197,94,0.15); color: var(--buy); }
+.top5-rec-sell { background: rgba(239,68,68,0.15); color: var(--sell); }
+.top5-rec-hold { background: rgba(245,158,11,0.15); color: var(--hold); }
+
 footer {
   text-align: center;
   padding: 24px;

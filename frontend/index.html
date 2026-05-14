@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI 주식 추천 시스템</title>
+  <title>BC_STOCK</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <header>
     <div class="header-inner">
-      <h1>📈 AI 주식 추천 시스템</h1>
+      <h1>BC_STOCK</h1>
       <p class="subtitle">기술적 분석 · 펀더멘털 분석 · Claude AI 종합 추천</p>
     </div>
   </header>
@@ -35,6 +35,19 @@
         <button class="chip" onclick="quickPick('KR','005930')">삼성전자</button>
         <button class="chip" onclick="quickPick('KR','000660')">SK하이닉스</button>
       </div>
+    </section>
+
+    <!-- Top 5 Section -->
+    <section class="card top5-section">
+      <div class="top5-header">
+        <h2>🏆 AI 추천 종목 TOP 5</h2>
+        <button class="refresh-btn" onclick="loadTop5(true)" id="refreshBtn">↻ 새로고침</button>
+      </div>
+      <p class="top5-desc">한국·미국 인기 종목 중 기술적·펀더멘털 분석 종합점수 상위 5개</p>
+      <div id="top5Loading" class="top5-loading">
+        <div class="spinner-sm"></div> 분석 중... (최대 30초 소요)
+      </div>
+      <div id="top5List" class="top5-list hidden"></div>
     </section>
 
     <!-- Loading -->
