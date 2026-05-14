@@ -156,7 +156,8 @@ function showResult(data) {
 
   // Store chart data and draw
   chartData = data.technical.chart_data;
-  showChart('price');
+  const firstTab = document.querySelector('.tab-btn');
+  showChart('price', firstTab);
 
   // Scroll to result
   document.getElementById('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -199,9 +200,9 @@ function drawGauge(score) {
   });
 }
 
-function showChart(type) {
+function showChart(type, btnEl) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  if (btnEl) btnEl.classList.add('active');
 
   if (!chartData) return;
   if (mainChart) mainChart.destroy();

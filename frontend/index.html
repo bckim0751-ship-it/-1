@@ -96,10 +96,10 @@
       <!-- Chart Section -->
       <section class="card chart-section">
         <div class="chart-tabs">
-          <button class="tab-btn active" onclick="showChart('price')">가격 차트</button>
-          <button class="tab-btn" onclick="showChart('rsi')">RSI</button>
-          <button class="tab-btn" onclick="showChart('macd')">MACD</button>
-          <button class="tab-btn" onclick="showChart('volume')">거래량</button>
+          <button class="tab-btn active" onclick="showChart('price', this)">가격 차트</button>
+          <button class="tab-btn" onclick="showChart('rsi', this)">RSI</button>
+          <button class="tab-btn" onclick="showChart('macd', this)">MACD</button>
+          <button class="tab-btn" onclick="showChart('volume', this)">거래량</button>
         </div>
         <div class="chart-wrap">
           <canvas id="mainChart"></canvas>
