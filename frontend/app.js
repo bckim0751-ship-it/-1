@@ -1,29 +1,42 @@
 const API = '';
 let mainChart = null, chartData = null, gaugeChart = null;
 
-// ── TOP10 ──────────────────────────────────────────────────────────────────
+// ── TOP10 (폴링 방식) ──────────────────────────────────────────────────────
+let pollTimer = null;
+
 async function loadTop10(force = false) {
-  const content = document.getElementById('top10Content');
-  const loading = document.getElementById('top10Loading');
   const btn = document.getElementById('refreshBtn');
-
-  content.classList.add('hidden');
-  loading.classList.remove('hidden');
   btn.disabled = true;
+  if (force) {
+    document.getElementById('top10Content').classList.add('hidden');
+    document.getElementById('top10Loading').classList.remove('hidden');
+  }
+  clearTimeout(pollTimer);
+  await pollTop10();
+}
 
+async function pollTop10() {
   try {
-    const url = force ? `${API}/api/top10?_=${Date.now()}` : `${API}/api/top10`;
-    const res = await fetch(url);
+    const res = await fetch(`${API}/api/top10`);
     if (!res.ok) throw new Error();
     const data = await res.json();
-    renderTop10List('krList', data.kr || [], 'KR');
-    renderTop10List('usList', data.us || [], 'US');
-    content.classList.remove('hidden');
+
+    const hasData = (data.kr?.length || 0) + (data.us?.length || 0) > 0;
+
+    if (hasData) {
+      renderTop10List('krList', data.kr || [], 'KR');
+      renderTop10List('usList', data.us || [], 'US');
+      document.getElementById('top10Content').classList.remove('hidden');
+      document.getElementById('top10Loading').classList.add('hidden');
+      document.getElementById('refreshBtn').disabled = false;
+    }
+
+    // 아직 계산 중이면 5초마다 재시도
+    if (data.computing || !hasData) {
+      pollTimer = setTimeout(pollTop10, 5000);
+    }
   } catch {
-    loading.innerHTML = '<p style="color:var(--sell)">⚠️ 데이터 로드 실패. 새로고침을 눌러주세요.</p>';
-  } finally {
-    loading.classList.add('hidden');
-    btn.disabled = false;
+    pollTimer = setTimeout(pollTop10, 8000);
   }
 }
 

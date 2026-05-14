@@ -1,6 +1,8 @@
 import os
 import time
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -16,111 +18,100 @@ from technical_analysis import analyze_technical
 from fundamental_analysis import analyze_fundamental
 from ai_recommendation import get_ai_recommendation
 
-app = FastAPI(title="BC_STOCK", version="2.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
-if os.path.exists(frontend_path):
-    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
-
-# ── 후보 종목 ────────────────────────────────────────────────────────────────
-KR_CANDIDATES = [t for t, _ in KR_BUILTIN[:30]]
+# ── 후보 종목 (줄여서 속도 확보) ───────────────────────────────────────────
+KR_CANDIDATES = [(t, n) for t, n in KR_BUILTIN[:20]]
 US_CANDIDATES = [
-    "AAPL","MSFT","NVDA","GOOGL","META","AMZN","TSLA","AMD","NFLX","JPM",
-    "V","MA","AVGO","ORCL","CRM","ADBE","QCOM","MU","UBER","PLTR",
-    "ARM","SMCI","SHOP","COIN","BAC","GS","XOM","LLY","UNH","COST",
+    ("AAPL","Apple"), ("MSFT","Microsoft"), ("NVDA","NVIDIA"), ("GOOGL","Alphabet"),
+    ("META","Meta"), ("AMZN","Amazon"), ("TSLA","Tesla"), ("AMD","AMD"),
+    ("NFLX","Netflix"), ("JPM","JPMorgan"), ("V","Visa"), ("AVGO","Broadcom"),
+    ("ORCL","Oracle"), ("MU","Micron"), ("PLTR","Palantir"),
+    ("QCOM","Qualcomm"), ("ADBE","Adobe"), ("CRM","Salesforce"),
+    ("UBER","Uber"), ("ARM","Arm Holdings"),
 ]
 
-_cache: dict = {"kr": None, "us": None, "ts": 0}
-_CACHE_TTL = 10800  # 3시간
+_cache: dict = {"kr": [], "us": [], "ts": 0, "computing": False}
+_CACHE_TTL = 10800
 
 
 def _score_stock(ticker: str, market: str, name: str) -> Optional[dict]:
-    """종목 하나를 분석하고 1~3개월 상승 가능성 점수와 함께 반환."""
     try:
         data = get_us_stock_data(ticker) if market == "US" else get_kr_stock_data(ticker)
-        if "error" in data:
+        if "error" in data or len(data.get("history", [])) < 60:
             return None
-
-        hist = data["history"]
-        if len(hist) < 60:
-            return None
-
-        tech = analyze_technical(hist)
+        tech = analyze_technical(data["history"])
         fund = analyze_fundamental(data["info"], market)
-        price_changes = tech.get("price_changes", {})
+        pc = tech.get("price_changes", {})
         ind = tech.get("indicators", {})
-
-        # 1~3개월 상승 가능성 보너스 점수
+        rsi = ind.get("rsi") or 50
+        macd = ind.get("macd") or 0
+        macd_sig = ind.get("macd_signal") or 0
+        m1 = pc.get("1m") or 0
+        m3 = pc.get("3m") or 0
         bonus = 0
-        rsi = ind.get("rsi", 50) or 50
-        macd = ind.get("macd", 0) or 0
-        macd_sig = ind.get("macd_signal", 0) or 0
-        change_1m = price_changes.get("1m", 0) or 0
-        change_3m = price_changes.get("3m", 0) or 0
-
-        # RSI 과매도 회복 구간 (매수 타이밍)
-        if 30 <= rsi <= 50:
-            bonus += 15
-        elif rsi < 30:
-            bonus += 10
-
-        # MACD 상향 돌파
-        if macd > macd_sig and macd > 0:
-            bonus += 10
-        elif macd > macd_sig and macd < 0:
-            bonus += 5  # 바닥에서 회복 중
-
-        # 1개월 하락 후 반등 가능성 (역발상 투자)
-        if -20 <= change_1m <= -5:
-            bonus += 10
-        elif -5 < change_1m <= 5:
-            bonus += 5  # 횡보 후 돌파 대기
-
-        # 3개월 기준 저점 회복 중
-        if -30 <= change_3m <= -10:
-            bonus += 8
-
-        combined = round((tech["score"] + fund["score"]) / 2 + bonus * 0.3)
-        combined = max(0, min(100, combined))
-
-        rec = "BUY" if combined >= 62 else ("SELL" if combined <= 38 else "HOLD")
-
+        if 30 <= rsi <= 50: bonus += 15
+        elif rsi < 30: bonus += 10
+        if macd > macd_sig: bonus += 10 if macd > 0 else 5
+        if -20 <= m1 <= -5: bonus += 10
+        elif -5 < m1 <= 5: bonus += 5
+        if -30 <= m3 <= -10: bonus += 8
+        score = max(0, min(100, round((tech["score"] + fund["score"]) / 2 + bonus * 0.3)))
         return {
-            "ticker": data["ticker"],
-            "name": name or data["name"],
-            "market": market,
-            "current_price": data["current_price"],
-            "currency": data["currency"],
-            "combined_score": combined,
-            "tech_score": tech["score"],
-            "fund_score": fund["score"],
-            "recommendation": rec,
-            "price_change_1d": round(price_changes.get("1d", 0), 2),
-            "price_change_1w": round(price_changes.get("1w", 0), 2),
-            "price_change_1m": round(price_changes.get("1m", 0), 2),
-            "price_change_3m": round(price_changes.get("3m", 0), 2),
+            "ticker": data["ticker"], "name": name or data["name"],
+            "market": market, "current_price": data["current_price"],
+            "currency": data["currency"], "combined_score": score,
+            "recommendation": "BUY" if score >= 62 else ("SELL" if score <= 38 else "HOLD"),
+            "price_change_1d": round(pc.get("1d") or 0, 2),
+            "price_change_1w": round(pc.get("1w") or 0, 2),
+            "price_change_1m": round(m1, 2),
+            "price_change_3m": round(m3, 2),
             "rsi": round(rsi, 1),
         }
     except Exception:
         return None
 
 
-def _build_top10(candidates: list[tuple], market: str, workers: int = 4) -> list[dict]:
-    results = []
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_score_stock, t, market, n): t for t, n in candidates}
-        for f in as_completed(futures):
-            r = f.result()
-            if r:
-                results.append(r)
-    return sorted(results, key=lambda x: x["combined_score"], reverse=True)[:10]
+def _compute_top10():
+    """백그라운드에서 실행 — 완료되면 캐시에 저장."""
+    if _cache["computing"]:
+        return
+    _cache["computing"] = True
+    try:
+        kr_results, us_results = [], []
+        # KR: 워커 3개
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            futures = {ex.submit(_score_stock, t, "KR", n): t for t, n in KR_CANDIDATES}
+            for f in as_completed(futures):
+                r = f.result()
+                if r: kr_results.append(r)
+        # US: 워커 4개
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(_score_stock, t, "US", n): t for t, n in US_CANDIDATES}
+            for f in as_completed(futures):
+                r = f.result()
+                if r: us_results.append(r)
+        _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
+        _cache["us"] = sorted(us_results, key=lambda x: x["combined_score"], reverse=True)[:10]
+        _cache["ts"] = time.time()
+    finally:
+        _cache["computing"] = False
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # 서버 시작 시 백그라운드에서 TOP10 미리 계산
+    threading.Thread(target=_compute_top10, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="BC_STOCK", version="2.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+)
+
+frontend_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -132,24 +123,20 @@ async def root():
 
 
 @app.get("/api/top10")
-async def get_top10():
-    """KR TOP10 + US TOP10 반환 (3시간 캐시)."""
+async def get_top10(refresh: bool = False):
+    """캐시된 TOP10 즉시 반환. 만료됐거나 refresh=true면 백그라운드 재계산 트리거."""
     now = time.time()
-    if _cache["kr"] and _cache["us"] and now - _cache["ts"] < _CACHE_TTL:
-        return {"kr": _cache["kr"], "us": _cache["us"], "cached": True}
+    expired = now - _cache["ts"] > _CACHE_TTL
 
-    kr_candidates = [(t, n) for t, n in KR_BUILTIN if t in KR_CANDIDATES]
-    us_name_map = {t: n for t, n in __import__("stock_data").US_BUILTIN}
-    us_candidates = [(t, us_name_map.get(t, t)) for t in US_CANDIDATES]
+    if (expired or refresh) and not _cache["computing"]:
+        threading.Thread(target=_compute_top10, daemon=True).start()
 
-    # KR: 순차 처리(pykrx), US: 병렬(FDR/stooq)
-    kr_top10 = _build_top10(kr_candidates, "KR", workers=3)
-    us_top10 = _build_top10(us_candidates, "US", workers=5)
-
-    _cache["kr"] = kr_top10
-    _cache["us"] = us_top10
-    _cache["ts"] = now
-    return {"kr": kr_top10, "us": us_top10, "cached": False}
+    return {
+        "kr": _cache["kr"],
+        "us": _cache["us"],
+        "computing": _cache["computing"],
+        "cached": bool(_cache["ts"]),
+    }
 
 
 @app.get("/api/search")
