@@ -1,11 +1,11 @@
 import yfinance as yf
 import pandas as pd
+import json
+
 try:
     from curl_cffi import requests as curl_requests
-    _curl_session = curl_requests.Session(impersonate="chrome110")
     CURL_AVAILABLE = True
 except Exception:
-    _curl_session = None
     CURL_AVAILABLE = False
 
 try:
@@ -16,6 +16,47 @@ except ImportError:
 
 from pykrx import stock as krx_stock
 from datetime import datetime, timedelta
+
+
+def _get_yahoo_direct(ticker: str, period: str = "1y") -> pd.DataFrame:
+    """curl_cffi로 Yahoo Finance API 직접 호출 (Chrome 위장, 봇 차단 우회)."""
+    if not CURL_AVAILABLE:
+        return pd.DataFrame()
+    try:
+        session = curl_requests.Session(impersonate="chrome110")
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        params = {"range": period, "interval": "1d", "includePrePost": "false"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        r = session.get(url, params=params, headers=headers, timeout=15)
+        if r.status_code != 200:
+            return pd.DataFrame()
+
+        data = r.json()
+        result = data.get("chart", {}).get("result", [])
+        if not result:
+            return pd.DataFrame()
+
+        res = result[0]
+        timestamps = res.get("timestamp", [])
+        quote = res.get("indicators", {}).get("quote", [{}])[0]
+
+        df = pd.DataFrame({
+            "Open":   quote.get("open", []),
+            "High":   quote.get("high", []),
+            "Low":    quote.get("low", []),
+            "Close":  quote.get("close", []),
+            "Volume": quote.get("volume", []),
+        }, index=pd.to_datetime(timestamps, unit="s"))
+
+        df.index = df.index.tz_localize("UTC").tz_convert("America/New_York").tz_localize(None)
+        df.index = df.index.normalize()
+        return df.dropna().sort_index()
+    except Exception:
+        return pd.DataFrame()
 
 
 def _normalize_hist(hist: pd.DataFrame) -> pd.DataFrame:
@@ -54,17 +95,9 @@ def _get_fdr(ticker: str, period_days: int = 400) -> pd.DataFrame:
 
 def get_us_stock_data(ticker: str, period: str = "1y") -> dict:
     ticker = ticker.upper()
-    hist = pd.DataFrame()
 
-    # 1순위: curl_cffi로 Chrome 흉내 → Yahoo Finance 차단 우회
-    if CURL_AVAILABLE and _curl_session:
-        try:
-            t = yf.Ticker(ticker, session=_curl_session)
-            raw = t.history(period=period)
-            if not raw.empty:
-                hist = _normalize_hist(raw)
-        except Exception:
-            pass
+    # 1순위: curl_cffi로 Yahoo Finance 직접 호출 (Chrome 위장)
+    hist = _get_yahoo_direct(ticker, period)
 
     # 2순위: FinanceDataReader (stooq)
     if hist.empty:
