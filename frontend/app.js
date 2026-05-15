@@ -218,7 +218,7 @@ function showResult(data) {
   const ch = data.technical.price_changes;
   document.getElementById('priceChanges').innerHTML = ['1d','1w','1m','3m'].map(k => {
     const v = ch[k], cls = v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
-    const lbl = {1d:'1일',1w:'1주',1m:'1개월','3m':'3개월'}[k] || k;
+    const lbl = {'1d':'1일','1w':'1주','1m':'1개월','3m':'3개월'}[k] || k;
     return `<div class="price-change-item ${cls}">${v > 0?'+':''}${v}%<span>${lbl}</span></div>`;
   }).join('');
 
