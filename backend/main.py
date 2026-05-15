@@ -76,24 +76,15 @@ def _compute_top10():
         return
     _cache["computing"] = True
     try:
-        kr_results, us_results = [], []
-
-        # KR: pykrx는 순차 처리
+        kr_results = []
         for t, n in KR_CANDIDATES:
             r = _score_stock(t, "KR", n)
             if r:
                 kr_results.append(r)
             time.sleep(0.3)
 
-        # US: stooq 429 방지 — 순차 + 딜레이
-        for t, n in US_CANDIDATES:
-            r = _score_stock(t, "US", n)
-            if r:
-                us_results.append(r)
-            time.sleep(1.0)
-
         _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
-        _cache["us"] = sorted(us_results, key=lambda x: x["combined_score"], reverse=True)[:10]
+        _cache["us"] = []  # US는 추후 지원
         _cache["ts"] = time.time()
     finally:
         _cache["computing"] = False

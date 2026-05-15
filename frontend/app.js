@@ -21,11 +21,21 @@ async function pollTop10() {
     if (!res.ok) throw new Error();
     const data = await res.json();
 
-    const hasData = (data.kr?.length || 0) + (data.us?.length || 0) > 0;
+    const hasData = (data.kr?.length || 0) > 0;
 
     if (hasData) {
       renderTop10List('krList', data.kr || [], 'KR');
       renderTop10List('usList', data.us || [], 'US');
+
+      // US 없으면 KR 전체 너비로
+      const grid = document.querySelector('.top10-grid');
+      if (!data.us?.length) {
+        grid.classList.add('kr-only');
+        document.getElementById('usComingSoon').textContent = '준비 중 (외부 API 제한)';
+      } else {
+        grid.classList.remove('kr-only');
+      }
+
       document.getElementById('top10Content').classList.remove('hidden');
       document.getElementById('top10Loading').classList.add('hidden');
       document.getElementById('refreshBtn').disabled = false;
