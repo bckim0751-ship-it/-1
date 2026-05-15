@@ -23,27 +23,40 @@ async function pollTop10() {
 
     const hasData = (data.kr?.length || 0) > 0;
 
+    // Update loading text with progress
+    if (data.computing) {
+      const prog = data.progress || '분석 중...';
+      const cnt = data.total > 0 ? ` (${data.done}/${data.total})` : '';
+      const loadingEl = document.querySelector('#top10Loading p');
+      if (loadingEl) loadingEl.textContent = prog + cnt;
+    }
+
     if (hasData) {
       renderTop10List('krList', data.kr || [], 'KR');
       renderTop10List('usList', data.us || [], 'US');
 
-      // US 없으면 KR 전체 너비로
       const grid = document.querySelector('.top10-grid');
-      if (!data.us?.length) {
-        grid.classList.add('kr-only');
-        document.getElementById('usComingSoon').textContent = '준비 중 (외부 API 제한)';
-      } else {
-        grid.classList.remove('kr-only');
-      }
+      grid.classList.add('kr-only');
+      document.getElementById('usComingSoon').textContent = '준비 중';
 
       document.getElementById('top10Content').classList.remove('hidden');
       document.getElementById('top10Loading').classList.add('hidden');
       document.getElementById('refreshBtn').disabled = false;
     }
 
-    // 아직 계산 중이면 5초마다 재시도
-    if (data.computing || !hasData) {
-      pollTimer = setTimeout(pollTop10, 5000);
+    if (data.error && !hasData) {
+      document.getElementById('top10Loading').innerHTML =
+        `<p style="color:var(--sell)">분석 오류: ${data.error}</p>`;
+      document.getElementById('refreshBtn').disabled = false;
+      return;
+    }
+
+    // Keep polling while computing (show partial results too)
+    if (data.computing) {
+      pollTimer = setTimeout(pollTop10, 3000);
+    } else if (!hasData) {
+      // Not computing but no data — retry once more
+      pollTimer = setTimeout(pollTop10, 8000);
     }
   } catch {
     pollTimer = setTimeout(pollTop10, 8000);

@@ -29,14 +29,14 @@ US_CANDIDATES = [
     ("UBER","Uber"), ("ARM","Arm Holdings"),
 ]
 
-_cache: dict = {"kr": [], "us": [], "ts": 0, "computing": False}
+_cache: dict = {"kr": [], "us": [], "ts": 0, "computing": False, "progress": "", "error": "", "done": 0, "total": 0}
 _CACHE_TTL = 10800
 
 
 def _score_stock(ticker: str, market: str, name: str) -> Optional[dict]:
     try:
         data = get_us_stock_data(ticker) if market == "US" else get_kr_stock_data(ticker)
-        if "error" in data or len(data.get("history", [])) < 60:
+        if "error" in data or len(data.get("history", [])) < 30:
             return None
         tech = analyze_technical(data["history"])
         fund = analyze_fundamental(data["info"], market)
@@ -75,17 +75,35 @@ def _compute_top10():
     if _cache["computing"]:
         return
     _cache["computing"] = True
+    _cache["error"] = ""
+    _cache["done"] = 0
+    _cache["total"] = len(KR_CANDIDATES)
+    kr_results = []
     try:
-        kr_results = []
-        for t, n in KR_CANDIDATES:
-            r = _score_stock(t, "KR", n)
-            if r:
-                kr_results.append(r)
+        for i, (t, n) in enumerate(KR_CANDIDATES):
+            _cache["progress"] = f"{n}({t}) 분석 중..."
+            try:
+                r = _score_stock(t, "KR", n)
+                if r:
+                    kr_results.append(r)
+            except Exception as e:
+                pass
+            _cache["done"] = i + 1
+            # save partial results so polling can show something early
+            if kr_results:
+                _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
             time.sleep(0.3)
 
         _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
-        _cache["us"] = []  # US는 추후 지원
+        _cache["us"] = []
         _cache["ts"] = time.time()
+        _cache["progress"] = "완료"
+    except Exception as e:
+        _cache["error"] = str(e)
+        _cache["progress"] = "오류 발생"
+        if kr_results:
+            _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
+            _cache["ts"] = time.time()
     finally:
         _cache["computing"] = False
 
@@ -130,6 +148,10 @@ async def get_top10(refresh: bool = False):
         "us": _cache["us"],
         "computing": _cache["computing"],
         "cached": bool(_cache["ts"]),
+        "progress": _cache.get("progress", ""),
+        "done": _cache.get("done", 0),
+        "total": _cache.get("total", 0),
+        "error": _cache.get("error", ""),
     }
 
 
@@ -180,6 +202,20 @@ async def analyze_stock(market: str, ticker: str):
             "metrics": fund["metrics"],
         },
         "ai_recommendation": ai,
+    }
+
+
+@app.get("/api/status")
+async def status():
+    return {
+        "computing": _cache["computing"],
+        "progress": _cache.get("progress", ""),
+        "done": _cache.get("done", 0),
+        "total": _cache.get("total", 0),
+        "kr_count": len(_cache["kr"]),
+        "us_count": len(_cache["us"]),
+        "cached": bool(_cache["ts"]),
+        "error": _cache.get("error", ""),
     }
 
 
