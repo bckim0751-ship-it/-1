@@ -18,15 +18,12 @@ from technical_analysis import analyze_technical
 from fundamental_analysis import analyze_fundamental
 from ai_recommendation import get_ai_recommendation
 
-# ── 후보 종목 (줄여서 속도 확보) ───────────────────────────────────────────
-KR_CANDIDATES = [(t, n) for t, n in KR_BUILTIN[:20]]
-US_CANDIDATES = [
-    ("AAPL","Apple"), ("MSFT","Microsoft"), ("NVDA","NVIDIA"), ("GOOGL","Alphabet"),
-    ("META","Meta"), ("AMZN","Amazon"), ("TSLA","Tesla"), ("AMD","AMD"),
-    ("NFLX","Netflix"), ("JPM","JPMorgan"), ("V","Visa"), ("AVGO","Broadcom"),
-    ("ORCL","Oracle"), ("MU","Micron"), ("PLTR","Palantir"),
-    ("QCOM","Qualcomm"), ("ADBE","Adobe"), ("CRM","Salesforce"),
-    ("UBER","Uber"), ("ARM","Arm Holdings"),
+# ── 후보 종목 — 유동성 높은 핵심 10개만 ──────────────────────────────────
+KR_CANDIDATES = [
+    ("005930","삼성전자"), ("000660","SK하이닉스"), ("035420","NAVER"),
+    ("005380","현대차"), ("000270","기아"), ("051910","LG화학"),
+    ("035720","카카오"), ("105560","KB금융"), ("055550","신한지주"),
+    ("373220","LG에너지솔루션"),
 ]
 
 _cache: dict = {"kr": [], "us": [], "ts": 0, "computing": False, "progress": "", "error": "", "done": 0, "total": 0}
@@ -71,28 +68,34 @@ def _score_stock(ticker: str, market: str, name: str) -> Optional[dict]:
 
 
 def _compute_top10():
-    """백그라운드에서 실행 — 완료되면 캐시에 저장."""
+    """백그라운드에서 실행 — 병렬로 종목 스코어링 후 캐시에 저장."""
     if _cache["computing"]:
         return
     _cache["computing"] = True
     _cache["error"] = ""
     _cache["done"] = 0
     _cache["total"] = len(KR_CANDIDATES)
+    _cache["progress"] = "분석 시작..."
     kr_results = []
     try:
-        for i, (t, n) in enumerate(KR_CANDIDATES):
-            _cache["progress"] = f"{n}({t}) 분석 중..."
-            try:
-                r = _score_stock(t, "KR", n)
-                if r:
-                    kr_results.append(r)
-            except Exception as e:
-                pass
-            _cache["done"] = i + 1
-            # save partial results so polling can show something early
-            if kr_results:
-                _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
-            time.sleep(0.3)
+        def _fetch(args):
+            t, n = args
+            return _score_stock(t, "KR", n)
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = {pool.submit(_fetch, cand): cand for cand in KR_CANDIDATES}
+            for fut in as_completed(futures):
+                t, n = futures[fut]
+                try:
+                    r = fut.result()
+                    if r:
+                        kr_results.append(r)
+                except Exception:
+                    pass
+                _cache["done"] += 1
+                _cache["progress"] = f"{_cache['done']}/{_cache['total']} 완료"
+                if kr_results:
+                    _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
 
         _cache["kr"] = sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)[:10]
         _cache["us"] = []

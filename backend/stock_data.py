@@ -132,7 +132,27 @@ def get_us_stock_data(ticker: str, period: str = "1y") -> dict:
     }
 
 
-def get_kr_stock_data(ticker: str, period_days: int = 400) -> dict:
+# ── KR Fundamentals cache (heavy call — fetch once, reuse) ──────────────────
+_kr_fund_cache: dict = {"data": None, "ts": 0}
+_KR_FUND_TTL = 10800  # 3 hours
+
+
+def _get_kr_fundamentals() -> pd.DataFrame:
+    """Fetch all KRX fundamentals once and cache for 3 hours."""
+    now = datetime.today().timestamp()
+    if _kr_fund_cache["data"] is not None and now - _kr_fund_cache["ts"] < _KR_FUND_TTL:
+        return _kr_fund_cache["data"]
+    try:
+        today_str = datetime.today().strftime("%Y%m%d")
+        df = krx_stock.get_market_fundamental_by_ticker(today_str, market="ALL")
+        _kr_fund_cache["data"] = df
+        _kr_fund_cache["ts"] = now
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_kr_stock_data(ticker: str, period_days: int = 120) -> dict:
     # Try FinanceDataReader first
     hist = _get_fdr(ticker, period_days)
 
@@ -162,12 +182,11 @@ def get_kr_stock_data(ticker: str, period_days: int = 400) -> dict:
     except Exception:
         pass
 
-    # Fundamental
+    # Fundamental — use cached bulk fetch
     fundamental = {}
     try:
-        today = datetime.today().strftime("%Y%m%d")
-        df = krx_stock.get_market_fundamental_by_ticker(today, market="ALL")
-        if ticker in df.index:
+        df = _get_kr_fundamentals()
+        if not df.empty and ticker in df.index:
             row = df.loc[ticker]
             fundamental = {
                 "trailingPE":   float(row.get("PER", 0)) or None,
