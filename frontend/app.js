@@ -3,63 +3,81 @@ let mainChart = null, chartData = null, gaugeChart = null;
 
 // ── TOP10 (폴링 방식) ──────────────────────────────────────────────────────
 let pollTimer = null;
+let pollRetries = 0;
+const MAX_RETRIES = 6;
 
 async function loadTop10(force = false) {
   const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
+  pollRetries = 0;
   if (force) {
     document.getElementById('top10Content').classList.add('hidden');
     document.getElementById('top10Loading').classList.remove('hidden');
+    document.getElementById('top10Loading').innerHTML =
+      `<div class="spinner"></div><div><p>국내 종목 분석 중...</p><p class="loading-sub">잠시만 기다려 주세요</p></div>`;
   }
   clearTimeout(pollTimer);
-  await pollTop10();
+  await pollTop10(force);
 }
 
-async function pollTop10() {
+async function pollTop10(forceRefresh = false) {
   try {
-    const res = await fetch(`${API}/api/top10`);
-    if (!res.ok) throw new Error();
+    const url = forceRefresh ? `${API}/api/top10?refresh=true` : `${API}/api/top10`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     const hasData = (data.kr?.length || 0) > 0;
 
-    // Update loading text with progress
+    // 진행 상황 표시
     if (data.computing) {
       const prog = data.progress || '분석 중...';
       const cnt = data.total > 0 ? ` (${data.done}/${data.total})` : '';
-      const loadingEl = document.querySelector('#top10Loading p');
-      if (loadingEl) loadingEl.textContent = prog + cnt;
+      const el = document.querySelector('#top10Loading p');
+      if (el) el.textContent = prog + cnt;
     }
 
     if (hasData) {
       renderTop10List('krList', data.kr || [], 'KR');
       renderTop10List('usList', data.us || [], 'US');
-
-      const grid = document.querySelector('.top10-grid');
-      grid.classList.add('kr-only');
+      document.querySelector('.top10-grid').classList.add('kr-only');
       document.getElementById('usComingSoon').textContent = '준비 중';
-
       document.getElementById('top10Content').classList.remove('hidden');
       document.getElementById('top10Loading').classList.add('hidden');
       document.getElementById('refreshBtn').disabled = false;
+      pollRetries = 0;
+      return; // 완료
     }
 
-    if (data.error && !hasData) {
+    // 오류 표시 (데이터도 없고 computing도 끝난 경우)
+    if (data.error && !data.computing) {
+      pollRetries++;
+      if (pollRetries >= MAX_RETRIES) {
+        document.getElementById('top10Loading').innerHTML =
+          `<p style="color:var(--sell);padding:16px">⚠️ ${data.error}</p>`;
+        document.getElementById('refreshBtn').disabled = false;
+        return;
+      }
+    }
+
+    // 계산 중이면 3초마다, 아니면 결과 없으므로 재계산 요청
+    if (data.computing) {
+      pollTimer = setTimeout(() => pollTop10(false), 3000);
+    } else {
+      // computing 끝났는데 데이터 없음 → 재계산 트리거
+      const delay = Math.min(5000 * (pollRetries + 1), 20000);
+      pollTimer = setTimeout(() => pollTop10(true), delay);
+    }
+  } catch (err) {
+    pollRetries++;
+    const delay = Math.min(5000 * pollRetries, 20000);
+    if (pollRetries >= MAX_RETRIES) {
       document.getElementById('top10Loading').innerHTML =
-        `<p style="color:var(--sell)">분석 오류: ${data.error}</p>`;
+        `<p style="color:var(--sell);padding:16px">⚠️ 서버에 연결할 수 없습니다. 페이지를 새로고침 해주세요.</p>`;
       document.getElementById('refreshBtn').disabled = false;
       return;
     }
-
-    // Keep polling while computing (show partial results too)
-    if (data.computing) {
-      pollTimer = setTimeout(pollTop10, 3000);
-    } else if (!hasData) {
-      // Not computing but no data — retry once more
-      pollTimer = setTimeout(pollTop10, 8000);
-    }
-  } catch {
-    pollTimer = setTimeout(pollTop10, 8000);
+    pollTimer = setTimeout(() => pollTop10(false), delay);
   }
 }
 
