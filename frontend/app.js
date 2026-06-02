@@ -95,15 +95,22 @@ function renderTop10List(elId, stocks, market) {
     const m1 = fmtChange(s.price_change_1m);
     const m3 = fmtChange(s.price_change_3m);
     const scoreColor = s.combined_score >= 65 ? 'var(--buy)' : s.combined_score <= 40 ? 'var(--sell)' : 'var(--hold)';
-    const badgeClass = s.recommendation === 'BUY' ? 'badge-buy' : s.recommendation === 'SELL' ? 'badge-sell' : 'badge-hold';
-    const badgeLabel = s.recommendation === 'BUY' ? '매수' : s.recommendation === 'SELL' ? '매도' : '보류';
+    const recMap = {
+      '적극매수': 'badge-buy', '매수': 'badge-buy', '분할매수': 'badge-hold',
+      '관망': 'badge-hold', '회피': 'badge-sell',
+      'BUY': 'badge-buy', 'SELL': 'badge-sell', 'HOLD': 'badge-hold',
+    };
+    const badgeClass = recMap[s.recommendation] || 'badge-hold';
+    const rrTxt = s.risk_reward != null ? `R/R ${s.risk_reward}` : '';
+    const rrCls = s.risk_reward >= 2 ? 'up' : s.risk_reward < 1 ? 'down' : 'flat';
+    const setupTxt = s.setup_label ? `<span class="top10-setup grade-${s.setup_grade||'D'}">${s.setup_label}</span>` : '';
 
     return `
     <div class="top10-item" onclick="quickPick('${market}','${s.ticker}')">
       <div class="top10-rank ${rankClass}">${i+1}</div>
       <div class="top10-info">
-        <div class="top10-name">${s.name}</div>
-        <div class="top10-sub">${s.ticker} · ${price}</div>
+        <div class="top10-name">${s.name} ${setupTxt}</div>
+        <div class="top10-sub">${s.ticker} · ${price} ${rrTxt ? `· <span class="${rrCls}">${rrTxt}</span>` : ''}</div>
       </div>
       <div class="top10-changes">
         <span class="${d1.cls}">${d1.str} 1일</span><br>
@@ -114,7 +121,7 @@ function renderTop10List(elId, stocks, market) {
         <div class="top10-score-val" style="color:${scoreColor}">${s.combined_score}</div>
         <div class="top10-score-lbl">점수</div>
       </div>
-      <div class="top10-badge ${badgeClass}">${badgeLabel}</div>
+      <div class="top10-badge ${badgeClass}">${s.recommendation || '관망'}</div>
     </div>`;
   }).join('');
 }
@@ -219,6 +226,49 @@ async function analyzeStock() {
   }
 }
 
+// ── 매매 플랜 렌더링 ────────────────────────────────────────────────────────
+function renderTradePlan(s, fmt) {
+  const badge = document.getElementById('setupBadge');
+  const desc = document.getElementById('setupDesc');
+  const levels = document.getElementById('planLevels');
+  const rr = document.getElementById('planRR');
+
+  badge.textContent = `${s.setup_label || '관망'} (${s.setup_grade || '-'}등급)`;
+  badge.className = 'setup-badge grade-' + (s.setup_grade || 'D');
+  desc.textContent = s.setup_desc || '';
+
+  if (s.entry_low && s.target && s.stop) {
+    levels.innerHTML = `
+      <div class="plan-level entry">
+        <div class="plan-level-label">📥 진입 구간</div>
+        <div class="plan-level-val">${fmt(s.entry_low)}</div>
+        <div class="plan-level-sub" style="color:var(--text2)">~ ${fmt(s.entry_high)}</div>
+      </div>
+      <div class="plan-level target">
+        <div class="plan-level-label">🎯 목표가</div>
+        <div class="plan-level-val">${fmt(s.target)}</div>
+        <div class="plan-level-sub up">+${s.upside_pct}%</div>
+      </div>
+      <div class="plan-level stop">
+        <div class="plan-level-label">🛑 손절가</div>
+        <div class="plan-level-val">${fmt(s.stop)}</div>
+        <div class="plan-level-sub down">-${s.downside_pct}%</div>
+      </div>`;
+    const rrCls = (s.risk_reward >= 2) ? 'rr-good' : (s.risk_reward < 1 ? 'rr-bad' : '');
+    rr.innerHTML = `
+      <div class="plan-rr-item">손익비(R/R)<strong class="${rrCls}">${s.risk_reward ?? '-'} : 1</strong></div>
+      <div class="plan-rr-item">기대수익<strong class="up">+${s.upside_pct}%</strong></div>
+      <div class="plan-rr-item">감수손실<strong class="down">-${s.downside_pct}%</strong></div>
+      <div class="plan-rr-item">일변동성(ATR)<strong>${s.atr_pct}%</strong></div>`;
+    rr.style.display = 'flex';
+    levels.style.display = 'grid';
+  } else {
+    levels.innerHTML = `<p class="plan-empty">현재는 명확한 진입 구간이 없습니다. ${s.setup_label === '과열 관망' ? '조정 후 재진입을 노리세요.' : '추세가 잡힐 때까지 관망을 권장합니다.'}</p>`;
+    levels.style.display = 'block';
+    rr.style.display = 'none';
+  }
+}
+
 // ── Result Rendering ───────────────────────────────────────────────────────
 function showResult(data) {
   document.getElementById('result').classList.remove('hidden');
@@ -241,17 +291,22 @@ function showResult(data) {
   drawGauge(data.combined_score);
   document.getElementById('scoreValue').textContent = data.combined_score;
 
+  // ── 매매 플랜 카드 ──────────────────────────────────────────────────
+  renderTradePlan(data.trade_setup || {}, fmt);
+
   const ai = data.ai_recommendation;
   const badge = document.getElementById('recBadge');
-  badge.textContent = ai.recommendation === 'BUY' ? '매수 (BUY)' : ai.recommendation === 'SELL' ? '매도 (SELL)' : '보류 (HOLD)';
-  badge.className = 'rec-badge rec-' + ai.recommendation.toLowerCase();
+  const recColors = {'적극매수':'rec-buy','매수':'rec-buy','분할매수':'rec-hold','관망':'rec-hold','회피':'rec-sell','BUY':'rec-buy','SELL':'rec-sell','HOLD':'rec-hold'};
+  badge.textContent = data.recommendation || ai.recommendation || '관망';
+  badge.className = 'rec-badge ' + (recColors[data.recommendation || ai.recommendation] || 'rec-hold');
   document.getElementById('aiSummary').textContent = ai.summary || '';
+  document.getElementById('aiAction').textContent = ai.action_plan || '';
+  document.getElementById('aiAction').style.display = ai.action_plan ? 'block' : 'none';
   document.getElementById('aiReasoning').textContent = ai.reasoning || '';
   document.getElementById('aiMeta').innerHTML = [
     ai.confidence != null ? `<div class="ai-meta-item">${ai.confidence}%<span>신뢰도</span></div>` : '',
     ai.risk_level ? `<div class="ai-meta-item">${ai.risk_level}<span>위험도</span></div>` : '',
     ai.investment_horizon ? `<div class="ai-meta-item">${ai.investment_horizon}<span>투자기간</span></div>` : '',
-    ai.target_price ? `<div class="ai-meta-item">${fmt(ai.target_price)}<span>목표가</span></div>` : '',
     ai.data_source ? `<div class="ai-meta-item" style="font-size:10px;color:var(--text2)">${ai.data_source}<span>분석출처</span></div>` : '',
   ].join('');
 

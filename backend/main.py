@@ -123,9 +123,10 @@ def _quick_score_kr(ticker: str, name: str) -> Optional[dict]:
 
         pc = tech.get("price_changes", {})
         ind = tech.get("indicators", {})
+        setup = tech.get("trade_setup", {})
         rsi = ind.get("rsi") or 50
         combined_score = round((tech["score"] + fund_score) / 2)
-        rec = "BUY" if combined_score >= 60 else ("SELL" if combined_score <= 40 else "HOLD")
+        rec = _decide_recommendation(combined_score, setup)
 
         return {
             "ticker": ticker, "name": name, "market": "KR",
@@ -136,9 +137,36 @@ def _quick_score_kr(ticker: str, name: str) -> Optional[dict]:
             "price_change_1m": round(pc.get("1m") or 0, 2),
             "price_change_3m": round(pc.get("3m") or 0, 2),
             "rsi": round(rsi, 1),
+            "setup_label": setup.get("setup_label", ""),
+            "setup_grade": setup.get("setup_grade", ""),
+            "risk_reward": setup.get("risk_reward"),
+            "target": setup.get("target"),
+            "stop": setup.get("stop"),
+            "entry_low": setup.get("entry_low"),
+            "entry_high": setup.get("entry_high"),
+            "upside_pct": setup.get("upside_pct"),
         }
     except Exception:
         return None
+
+
+def _decide_recommendation(score: int, setup: dict) -> str:
+    """점수 + 셋업 등급 + 손익비를 종합한 실전 추천.
+    적극매수 / 매수 / 분할매수 / 관망 / 회피
+    """
+    grade = setup.get("setup_grade", "D")
+    rr = setup.get("risk_reward") or 0
+    if grade == "F":
+        return "회피"
+    if grade == "A" and score >= 58 and rr >= 1.8:
+        return "적극매수"
+    if grade in ("A", "B") and score >= 55:
+        return "매수"
+    if grade in ("B", "C") and score >= 48:
+        return "분할매수"
+    if score <= 38:
+        return "회피"
+    return "관망"
 
 
 def _generate_briefing(kr_results: list) -> dict:
@@ -405,13 +433,17 @@ async def analyze_stock(market: str, ticker: str):
         price_changes=tech.get("price_changes", {}),
         history=data["history"],
         market_context=mkt_ctx,
+        trade_setup=tech.get("trade_setup", {}),
     )
     combined_score = round((tech["score"] + fund["score"]) / 2)
+    setup = tech.get("trade_setup", {})
 
     return {
         "ticker": data["ticker"], "name": data["name"],
         "market": market, "current_price": data["current_price"],
         "currency": data["currency"], "combined_score": combined_score,
+        "recommendation": _decide_recommendation(combined_score, setup),
+        "trade_setup": setup,
         "technical": {
             "score": tech["score"], "signals": tech["signals"],
             "indicators": tech["indicators"], "price_changes": tech["price_changes"],

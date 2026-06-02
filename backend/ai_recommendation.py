@@ -28,46 +28,60 @@ def _extract_json(text: str) -> dict:
 
 
 def _score_based_fallback(technical: dict, fundamental: dict, error_detail: str = "") -> dict:
-    """AI 호출 실패 시 지표 기반 분석으로 대체."""
+    """AI 호출 실패 시 지표·셋업 기반 분석으로 대체."""
     tech_score = technical.get("score", 50)
     fund_score = fundamental.get("score", 50)
     combined = (tech_score + fund_score) / 2
-    rec = "BUY" if combined >= 60 else ("SELL" if combined <= 40 else "HOLD")
+    setup = technical.get("trade_setup", {}) or {}
+    grade = setup.get("setup_grade", "D")
+    rr = setup.get("risk_reward") or 0
+
+    # 셋업 등급 + 손익비 기반 추천
+    if grade == "F":
+        rec = "회피"
+    elif grade == "A" and combined >= 58 and rr >= 1.8:
+        rec = "적극매수"
+    elif grade in ("A", "B") and combined >= 55:
+        rec = "매수"
+    elif grade in ("B", "C") and combined >= 48:
+        rec = "분할매수"
+    elif combined <= 38:
+        rec = "회피"
+    else:
+        rec = "관망"
 
     ind = technical.get("indicators", {})
-    pc = technical.get("price_changes", {})
     rsi = ind.get("rsi") or 50
 
-    # 지표 기반 강점/위험 자동 도출
     strengths, risks = [], []
-    signals = technical.get("signals", []) + fundamental.get("signals", [])
-    for s in signals:
+    for s in technical.get("signals", []) + fundamental.get("signals", []):
         if s.get("type") == "bullish":
             strengths.append(s.get("message", ""))
         elif s.get("type") == "bearish":
             risks.append(s.get("message", ""))
 
-    reasoning_parts = [
-        f"기술적 분석 점수 {tech_score}/100, 펀더멘털 점수 {fund_score}/100.",
-        f"RSI {rsi:.1f}({'과매도' if rsi < 30 else '과매수' if rsi > 70 else '중립'} 구간).",
-    ]
-    p1m = pc.get("1m") or 0
-    p3m = pc.get("3m") or 0
-    if p1m: reasoning_parts.append(f"최근 1개월 {p1m:+.1f}%, 3개월 {p3m:+.1f}%.")
-    if error_detail:
-        reasoning_parts.append(f"(AI 서비스 일시 오류로 지표 기반 분석 제공)")
+    # 셋업 기반 액션 플랜
+    action = setup.get("setup_desc", "")
+    if setup.get("entry_low") and setup.get("target") and setup.get("stop"):
+        action += (f" 진입 {setup['entry_low']:,.0f}~{setup['entry_high']:,.0f}, "
+                   f"목표 {setup['target']:,.0f}(+{setup.get('upside_pct')}%), "
+                   f"손절 {setup['stop']:,.0f}(-{setup.get('downside_pct')}%), "
+                   f"손익비 {rr}.")
+
+    note = " (AI 일시 오류로 지표 기반 자동 분석)" if error_detail else ""
 
     return {
         "recommendation": rec,
         "confidence": min(90, int(abs(combined - 50) * 2 + 30)),
-        "summary": f"기술·펀더멘털 종합 {combined:.0f}점 → {rec}",
-        "reasoning": " ".join(reasoning_parts),
+        "summary": f"{setup.get('setup_label', '관망')} · 종합 {combined:.0f}점 → {rec}",
+        "action_plan": (action or "뚜렷한 셋업 없음 — 방향성 확인 후 진입.") + note,
+        "reasoning": f"기술 {tech_score}점/펀더 {fund_score}점, RSI {rsi:.0f}, "
+                     f"셋업등급 {grade}, 손익비 {rr}.",
         "strengths": strengths[:3],
         "risks": risks[:2],
-        "target_price": None,
         "risk_level": "낮음" if combined >= 65 else "높음" if combined <= 40 else "중간",
         "investment_horizon": "단기(1-3개월)",
-        "data_source": "기술적+펀더멘털 지표 (AI 없음)",
+        "data_source": "매매셋업 + 기술·펀더멘털 지표 (AI 없음)",
     }
 
 
@@ -82,6 +96,7 @@ def get_ai_recommendation(
     price_changes: dict,
     history: Optional[pd.DataFrame] = None,
     market_context: Optional[dict] = None,
+    trade_setup: Optional[dict] = None,
 ) -> dict:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -122,15 +137,29 @@ def get_ai_recommendation(
 ## 시장 환경 (참고 데이터)
 {chr(10).join(f'- {k}: {v}' for k, v in market_context.items() if v)}"""
 
-    prompt = f"""당신은 CFA 자격증을 보유한 시니어 주식 애널리스트입니다.
-아래 실제 시장 데이터를 바탕으로 {name}({ticker}, {market}) 투자 분석을 해주세요.
-단순히 데이터를 반복하지 말고, 데이터 간 관계에서 나오는 **인사이트**를 제공하세요.
+    setup_section = ""
+    if trade_setup and trade_setup.get("setup_label"):
+        fmt = lambda v: (f"{v:,.0f}" if currency == "KRW" else f"{v:,.2f}") if v else "-"
+        setup_section = f"""
+## 매매 셋업 (시스템 자동 산출 — 이 수치를 참고해 조언하세요)
+- 셋업 유형: {trade_setup.get('setup_label')} (등급 {trade_setup.get('setup_grade')})
+- 셋업 설명: {trade_setup.get('setup_desc')}
+- 권장 진입가: {fmt(trade_setup.get('entry_low'))} ~ {fmt(trade_setup.get('entry_high'))}
+- 목표가: {fmt(trade_setup.get('target'))} (기대수익 {trade_setup.get('upside_pct')}%)
+- 손절가: {fmt(trade_setup.get('stop'))} (손실 {trade_setup.get('downside_pct')}%)
+- 손익비(R/R): {trade_setup.get('risk_reward')} (2 이상이면 유리)
+- 변동성(ATR): 일평균 {trade_setup.get('atr_pct')}%"""
+
+    prompt = f"""당신은 실전 자금을 운용하는 스윙 트레이더입니다. 당신의 돈이 실제로 들어간다는 전제로
+{name}({ticker}, {market})를 1~3개월 관점에서 분석하세요. 교과서적 설명이 아니라,
+"지금 사야 하나, 산다면 얼마에 사고 어디서 손절하나"에 답하세요.
 
 ## 가격 현황
 - 현재가: {current_price:,.2f} {currency}
 - 1일: {price_changes.get('1d', 0):+.2f}% / 1주: {price_changes.get('1w', 0):+.2f}% / 1개월: {price_changes.get('1m', 0):+.2f}% / 3개월: {price_changes.get('3m', 0):+.2f}%
 {w52_section}
 {ctx_section}
+{setup_section}
 
 ## 기술적 지표 (점수: {technical.get('score', 50)}/100)
 - RSI(14): {ind.get('rsi', 'N/A')} | MACD: {ind.get('macd', 'N/A')} (Signal: {ind.get('macd_signal', 'N/A')})
@@ -148,16 +177,16 @@ def get_ai_recommendation(
 
 ## 응답 형식 (JSON만, 다른 텍스트 없이)
 {{
-  "recommendation": "BUY 또는 HOLD 또는 SELL",
+  "recommendation": "적극매수 또는 매수 또는 분할매수 또는 관망 또는 회피",
   "confidence": 75,
-  "summary": "핵심 판단 한 줄 (60자 이내)",
-  "reasoning": "데이터 기반 분석 근거 — 지표들의 상호작용과 현재 시장 맥락 포함 (250자 내외)",
-  "strengths": ["구체적 강점1", "구체적 강점2"],
-  "risks": ["구체적 리스크1", "구체적 리스크2"],
-  "target_price": null,
+  "summary": "지금 어떻게 행동할지 한 줄 (60자 이내, 예: '20일선 눌림목 분할 매수, 손절은 직전 저점')",
+  "action_plan": "구체적 매매 시나리오 2-3문장 — 진입 타이밍·조건, 목표 도달 시 대응, 손절 조건을 실전 표현으로",
+  "reasoning": "위 판단의 근거 — 기술적 셋업·펀더멘털·시장 환경을 엮어서 (200자 내외)",
+  "strengths": ["매수 논리1", "매수 논리2"],
+  "risks": ["이 시나리오가 깨지는 조건1", "리스크2"],
   "risk_level": "낮음 또는 중간 또는 높음",
   "investment_horizon": "단기(1-3개월) 또는 중기(3-6개월) 또는 장기(1년+)",
-  "data_source": "기술적 지표 + 펀더멘털 + 52주 가격 위치"
+  "data_source": "매매셋업 + 기술적·펀더멘털 + 시장환경"
 }}"""
 
     try:
