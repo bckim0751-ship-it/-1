@@ -59,52 +59,71 @@ def analyze_technical(history: pd.DataFrame) -> dict:
     signals = []
     score = 50  # neutral starting point
 
-    # RSI signals
+    # ── RSI: 과매도=매수기회, 과매수=주의, 단 강한 추세에서는 완화 ──────
     if current_rsi < 30:
-        signals.append({"type": "bullish", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 과매도 구간 (매수 기회)"})
+        signals.append({"type": "bullish", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 과매도 구간 (강한 매수 기회)"})
         score += 15
-    elif current_rsi > 70:
-        signals.append({"type": "bearish", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 과매수 구간 (주의 필요)"})
-        score -= 15
+    elif current_rsi < 50:
+        signals.append({"type": "bullish", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 중립 하단 (추가 상승 여력)"})
+        score += 5
+    elif current_rsi <= 65:
+        signals.append({"type": "neutral", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 건강한 상승 구간"})
+        # 65 이하면 패널티 없음 — 모멘텀 인정
+    elif current_rsi <= 75:
+        signals.append({"type": "neutral", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 과열 주의, 단기 조정 가능"})
+        score -= 5
     else:
-        signals.append({"type": "neutral", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 중립 구간"})
+        signals.append({"type": "bearish", "indicator": "RSI", "message": f"RSI {current_rsi:.1f} — 과매수 구간 (고점 주의)"})
+        score -= 15
 
-    # MACD signals
+    # ── MACD ────────────────────────────────────────────────────────────
     if current_macd > current_signal and current_hist > 0:
-        signals.append({"type": "bullish", "indicator": "MACD", "message": "MACD 골든크로스 — 상승 추세"})
+        signals.append({"type": "bullish", "indicator": "MACD", "message": "MACD 골든크로스 — 상승 추세 확인"})
         score += 10
     elif current_macd < current_signal and current_hist < 0:
         signals.append({"type": "bearish", "indicator": "MACD", "message": "MACD 데드크로스 — 하락 추세"})
         score -= 10
 
-    # Moving average signals
+    # ── 이동평균선 ───────────────────────────────────────────────────────
     ma20_val = float(ma20.iloc[-1]) if not pd.isna(ma20.iloc[-1]) else None
     ma60_val = float(ma60.iloc[-1]) if not pd.isna(ma60.iloc[-1]) else None
     ma120_val = float(ma120.iloc[-1]) if not pd.isna(ma120.iloc[-1]) else None
 
     if ma20_val and current_price > ma20_val:
-        signals.append({"type": "bullish", "indicator": "MA20", "message": f"현재가({current_price:,.0f})가 20일 이평선({ma20_val:,.0f}) 위"})
+        signals.append({"type": "bullish", "indicator": "MA20", "message": f"현재가 20일선({ma20_val:,.0f}) 위 — 단기 상승"})
         score += 5
     elif ma20_val:
-        signals.append({"type": "bearish", "indicator": "MA20", "message": f"현재가({current_price:,.0f})가 20일 이평선({ma20_val:,.0f}) 아래"})
+        signals.append({"type": "bearish", "indicator": "MA20", "message": f"현재가 20일선({ma20_val:,.0f}) 아래 — 단기 약세"})
         score -= 5
 
     if ma60_val and current_price > ma60_val:
-        signals.append({"type": "bullish", "indicator": "MA60", "message": f"60일 이평선 위 — 중기 상승 추세"})
+        signals.append({"type": "bullish", "indicator": "MA60", "message": "60일선 위 — 중기 상승 추세"})
         score += 5
     elif ma60_val:
-        signals.append({"type": "bearish", "indicator": "MA60", "message": f"60일 이평선 아래 — 중기 하락 추세"})
+        signals.append({"type": "bearish", "indicator": "MA60", "message": "60일선 아래 — 중기 약세"})
         score -= 5
 
-    # Bollinger Band signals
+    # ── 모멘텀: MA 정배열 (단기>중기>장기) = 추세 지속 신호 ──────────
+    if ma20_val and ma60_val and ma120_val:
+        if ma20_val > ma60_val > ma120_val and current_price > ma20_val:
+            signals.append({"type": "bullish", "indicator": "추세", "message": "이동평균 정배열 — 강한 상승 추세 지속 중"})
+            score += 12
+        elif ma20_val < ma60_val < ma120_val and current_price < ma20_val:
+            signals.append({"type": "bearish", "indicator": "추세", "message": "이동평균 역배열 — 하락 추세 지속"})
+            score -= 12
+
+    # ── 볼린저 밴드 ──────────────────────────────────────────────────────
     if current_price <= bb_lower:
         signals.append({"type": "bullish", "indicator": "BB", "message": "볼린저 밴드 하단 터치 — 반등 가능성"})
         score += 10
     elif current_price >= bb_upper:
-        signals.append({"type": "bearish", "indicator": "BB", "message": "볼린저 밴드 상단 터치 — 과매수 주의"})
-        score -= 10
-
-    # Volume trend
+        # 강한 모멘텀이면 BB 상단 돌파도 추세 신호 (패널티 완화)
+        if current_macd > current_signal:
+            signals.append({"type": "neutral", "indicator": "BB", "message": "볼린저 상단 돌파 + MACD 양호 — 강한 추세 (단기 과열 주의)"})
+            score -= 3
+        else:
+            signals.append({"type": "bearish", "indicator": "BB", "message": "볼린저 밴드 상단 — 과매수, 조정 가능성"})
+            score -= 10
     avg_vol = float(volume.rolling(20).mean().iloc[-1]) if not pd.isna(volume.rolling(20).mean().iloc[-1]) else 0
     current_vol = float(volume.iloc[-1])
     if avg_vol > 0 and current_vol > avg_vol * 1.5:
