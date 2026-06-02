@@ -175,4 +175,16 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; alig
 .indicator-item .ind-label { font-size: 11px; color: var(--text2); }
 .indicator-item .ind-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
 
+/* Briefing */
+.briefing-card { border-left: 3px solid var(--accent); }
+.briefing-mood { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+.mood-positive { background: rgba(34,197,94,.12); color: var(--buy); }
+.mood-neutral  { background: rgba(245,158,11,.12); color: var(--hold); }
+.mood-negative { background: rgba(239,68,68,.12); color: var(--sell); }
+.briefing-issues { list-style: none; display: flex; flex-direction: column; gap: 5px; margin: 8px 0; }
+.briefing-issues li { font-size: 13px; padding: 6px 10px; background: var(--bg3); border-radius: 6px; }
+.briefing-issues li::before { content: "• "; color: var(--accent); }
+.briefing-highlight { font-size: 13px; padding: 8px 12px; background: rgba(108,99,255,.08); border-radius: 8px; margin-top: 8px; border-left: 3px solid var(--accent); }
+.briefing-caution { font-size: 13px; padding: 8px 12px; background: rgba(239,68,68,.07); border-radius: 8px; margin-top: 6px; border-left: 3px solid var(--sell); color: var(--text2); }
+
 footer { text-align: center; padding: 20px; color: var(--text2); font-size: 12px; border-top: 1px solid var(--border); margin-top: 16px; }

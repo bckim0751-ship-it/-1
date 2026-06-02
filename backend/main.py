@@ -32,6 +32,7 @@ KR_CANDIDATES = [
 _cache: dict = {
     "kr": [], "us": [], "ts": 0, "computing": False,
     "progress": "", "error": "", "done": 0, "total": 0,
+    "briefing": {},
 }
 _CACHE_TTL = 10800
 
@@ -98,60 +99,83 @@ def _quick_score_kr(ticker: str, name: str) -> Optional[dict]:
         if hist.empty:
             return None
 
-        close = hist["Close"].astype(float)
-        current_price = float(close.iloc[-1])
-        if current_price <= 0:
-            return None
+        # Volume 컬럼 없으면 dummy 추가 (analyze_technical 요구사항)
+        if "Volume" not in hist.columns:
+            hist = hist.copy()
+            hist["Volume"] = 0
 
-        # RSI 14
-        delta = close.diff()
-        gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
-        loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
-        rs = gain / loss.replace(0, 1e-9)
-        rsi_series = 100 - 100 / (1 + rs)
-        rsi = float(rsi_series.iloc[-1])
-        if rsi != rsi:  # NaN guard
-            rsi = 50.0
+        # 상세 분석과 동일한 로직 사용 → 점수 일관성 보장
+        tech = analyze_technical(hist)
+        fund_score = 50  # TOP10 경로는 펀더멘털 생략 → 중립값
 
-        def pct(n: int) -> float:
-            return float(close.pct_change(n).iloc[-1] * 100) if len(close) > n else 0.0
-
-        p1d = pct(1)
-        p1w = pct(5)
-        p1m = pct(21) if len(close) > 21 else 0.0
-        p3m = pct(63) if len(close) > 63 else 0.0
-
-        # 간단 스코어
-        score = 50
-        if rsi < 30:         score += 20
-        elif rsi < 45:       score += 10
-        elif rsi > 70:       score -= 15
-
-        if -15 <= p1m <= -3: score += 10
-        elif -3 < p1m <= 5:  score += 5
-        elif p1m < -20:      score -= 8
-
-        if -20 <= p3m <= -5: score += 8
-
-        if len(close) >= 20:
-            ma20 = float(close.rolling(20).mean().iloc[-1])
-            score += 5 if current_price > ma20 else -5
-
-        score = max(0, min(100, score))
-        rec = "BUY" if score >= 60 else ("SELL" if score <= 40 else "HOLD")
+        pc = tech.get("price_changes", {})
+        ind = tech.get("indicators", {})
+        rsi = ind.get("rsi") or 50
+        combined_score = round((tech["score"] + fund_score) / 2)
+        rec = "BUY" if combined_score >= 60 else ("SELL" if combined_score <= 40 else "HOLD")
 
         return {
             "ticker": ticker, "name": name, "market": "KR",
-            "current_price": current_price, "currency": "KRW",
-            "combined_score": score, "recommendation": rec,
-            "price_change_1d": round(p1d, 2),
-            "price_change_1w": round(p1w, 2),
-            "price_change_1m": round(p1m, 2),
-            "price_change_3m": round(p3m, 2),
+            "current_price": float(hist["Close"].iloc[-1]), "currency": "KRW",
+            "combined_score": combined_score, "recommendation": rec,
+            "price_change_1d": round(pc.get("1d") or 0, 2),
+            "price_change_1w": round(pc.get("1w") or 0, 2),
+            "price_change_1m": round(pc.get("1m") or 0, 2),
+            "price_change_3m": round(pc.get("3m") or 0, 2),
             "rsi": round(rsi, 1),
         }
     except Exception:
         return None
+
+
+def _generate_briefing(kr_results: list) -> dict:
+    """종목 데이터 기반 장 전 시장 브리핑 — Claude Haiku 사용."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key or not kr_results:
+        return {}
+    try:
+        import anthropic, json as _json
+        import pytz
+        kst = pytz.timezone("Asia/Seoul")
+        today = datetime.now(kst).strftime("%Y년 %m월 %d일")
+
+        lines = "\n".join([
+            f"- {r['name']}({r['ticker']}): 종합{r['combined_score']}점 / "
+            f"RSI {r['rsi']} / 1일 {r['price_change_1d']:+.1f}% / 1개월 {r['price_change_1m']:+.1f}%"
+            for r in sorted(kr_results, key=lambda x: x["combined_score"], reverse=True)
+        ])
+
+        prompt = f"""{today} 기준 국내 주요 종목 기술적 분석 데이터입니다.
+
+{lines}
+
+위 데이터를 바탕으로 오늘 장 개장 전 시장 브리핑을 아래 JSON 형식으로만 답하세요:
+{{
+  "mood": "긍정적 또는 중립 또는 부정적",
+  "mood_reason": "시장 심리 한 줄 요약",
+  "key_issues": [
+    "주목할 이슈 1 (종목명 포함, 구체적으로)",
+    "주목할 이슈 2",
+    "주목할 이슈 3"
+  ],
+  "top_pick": "오늘 가장 주목할 종목명과 이유 (1문장)",
+  "caution": "오늘 주의해야 할 리스크 요인 (1문장)"
+}}"""
+
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return _json.loads(text.strip())
+    except Exception:
+        return {}
 
 
 def _compute_top10():
@@ -189,8 +213,13 @@ def _compute_top10():
                 kr_results, key=lambda x: x["combined_score"], reverse=True
             )[:10]
             _cache["us"] = []
-            _cache["ts"] = time.time()          # 결과 있을 때만 타임스탬프 업데이트
+            _cache["ts"] = time.time()
             _cache["progress"] = f"완료 ({len(kr_results)}개 분석)"
+            # 브리핑 생성 (별도 스레드로 — 실패해도 TOP10 결과에 영향 없음)
+            threading.Thread(
+                target=lambda: _cache.update({"briefing": _generate_briefing(kr_results)}),
+                daemon=True,
+            ).start()
         else:
             _cache["error"] = "데이터를 가져오지 못했습니다. 잠시 후 새로고침 해주세요."
             _cache["progress"] = "데이터 없음"
@@ -281,6 +310,7 @@ async def get_top10(refresh: bool = False):
         "done": _cache.get("done", 0),
         "total": _cache.get("total", 0),
         "error": _cache.get("error", ""),
+        "briefing": _cache.get("briefing", {}),
     }
 
 

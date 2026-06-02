@@ -45,8 +45,9 @@ async function pollTop10(forceRefresh = false) {
       document.getElementById('top10Content').classList.remove('hidden');
       document.getElementById('top10Loading').classList.add('hidden');
       document.getElementById('refreshBtn').disabled = false;
+      if (data.briefing && Object.keys(data.briefing).length) renderBriefing(data.briefing);
       pollRetries = 0;
-      return; // 완료
+      return;
     }
 
     // 오류 표시 (데이터도 없고 computing도 끝난 경우)
@@ -116,6 +117,21 @@ function renderTop10List(elId, stocks, market) {
       <div class="top10-badge ${badgeClass}">${badgeLabel}</div>
     </div>`;
   }).join('');
+}
+
+function renderBriefing(b) {
+  const card = document.getElementById('briefingCard');
+  const content = document.getElementById('briefingContent');
+  const moodClass = b.mood === '긍정적' ? 'mood-positive' : b.mood === '부정적' ? 'mood-negative' : 'mood-neutral';
+  const moodIcon = b.mood === '긍정적' ? '📈' : b.mood === '부정적' ? '📉' : '➡️';
+  const issues = (b.key_issues || []).map(i => `<li>${i}</li>`).join('');
+  content.innerHTML = `
+    <div class="briefing-mood ${moodClass}">${moodIcon} ${b.mood} — ${b.mood_reason || ''}</div>
+    <ul class="briefing-issues">${issues}</ul>
+    ${b.top_pick ? `<div class="briefing-highlight">⭐ ${b.top_pick}</div>` : ''}
+    ${b.caution ? `<div class="briefing-caution">⚠️ ${b.caution}</div>` : ''}
+  `;
+  card.classList.remove('hidden');
 }
 
 function fmtChange(v) {
