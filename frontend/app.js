@@ -250,8 +250,9 @@ function showResult(data) {
   document.getElementById('aiMeta').innerHTML = [
     ai.confidence != null ? `<div class="ai-meta-item">${ai.confidence}%<span>신뢰도</span></div>` : '',
     ai.risk_level ? `<div class="ai-meta-item">${ai.risk_level}<span>위험도</span></div>` : '',
-    ai.investment_horizon ? `<div class="ai-meta-item">${ai.investment_horizon}<span>투자 기간</span></div>` : '',
+    ai.investment_horizon ? `<div class="ai-meta-item">${ai.investment_horizon}<span>투자기간</span></div>` : '',
     ai.target_price ? `<div class="ai-meta-item">${fmt(ai.target_price)}<span>목표가</span></div>` : '',
+    ai.data_source ? `<div class="ai-meta-item" style="font-size:10px;color:var(--text2)">${ai.data_source}<span>분석출처</span></div>` : '',
   ].join('');
 
   let listsHtml = '';

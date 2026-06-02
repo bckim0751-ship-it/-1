@@ -324,6 +324,45 @@ async def search_stocks(query: str, market: Optional[str] = None):
     return {"results": results}
 
 
+_mkt_ctx_cache: dict = {"data": {}, "ts": 0}
+
+def _get_market_context(market: str) -> dict:
+    """KOSPI/S&P500·환율 등 시장 컨텍스트 — 1시간 캐시."""
+    now = time.time()
+    if now - _mkt_ctx_cache["ts"] < 3600 and _mkt_ctx_cache["data"].get(market):
+        return _mkt_ctx_cache["data"][market]
+
+    ctx = {}
+    try:
+        if market == "KR":
+            from pykrx import stock as krx_stock
+            end = datetime.today().strftime("%Y%m%d")
+            start = (datetime.today() - timedelta(days=10)).strftime("%Y%m%d")
+            idx = krx_stock.get_index_ohlcv_by_date(start, end, "1001")  # KOSPI
+            if idx is not None and not idx.empty and len(idx) >= 2:
+                kospi_now = float(idx["종가"].iloc[-1])
+                kospi_prev = float(idx["종가"].iloc[-2])
+                kospi_chg = (kospi_now - kospi_prev) / kospi_prev * 100
+                ctx["KOSPI 지수"] = f"{kospi_now:,.2f} ({kospi_chg:+.2f}%)"
+        else:
+            sp = _get_yahoo_direct("^GSPC", period="5d")
+            if not sp.empty and len(sp) >= 2:
+                sp_chg = float(sp["Close"].pct_change().iloc[-1] * 100)
+                ctx["S&P500"] = f"{float(sp['Close'].iloc[-1]):,.2f} ({sp_chg:+.2f}%)"
+
+        # USD/KRW 환율
+        fx = _get_yahoo_direct("KRW=X", period="5d")
+        if not fx.empty:
+            ctx["USD/KRW"] = f"{float(fx['Close'].iloc[-1]):,.0f}원"
+
+    except Exception:
+        pass
+
+    _mkt_ctx_cache["data"][market] = ctx
+    _mkt_ctx_cache["ts"] = now
+    return ctx
+
+
 @app.get("/api/analyze/{market}/{ticker}")
 async def analyze_stock(market: str, ticker: str):
     market = market.upper()
@@ -339,11 +378,20 @@ async def analyze_stock(market: str, ticker: str):
 
     tech = analyze_technical(data["history"])
     fund = analyze_fundamental(data["info"], market)
+
+    # 시장 컨텍스트 수집 (실패해도 분석 계속)
+    try:
+        mkt_ctx = _get_market_context(market)
+    except Exception:
+        mkt_ctx = {}
+
     ai = get_ai_recommendation(
         ticker=data["ticker"], name=data["name"], market=market,
         current_price=data["current_price"], currency=data["currency"],
         technical=tech, fundamental=fund,
         price_changes=tech.get("price_changes", {}),
+        history=data["history"],
+        market_context=mkt_ctx,
     )
     combined_score = round((tech["score"] + fund["score"]) / 2)
 
