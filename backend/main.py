@@ -208,10 +208,44 @@ def _compute_top10():
         _cache["computing"] = False
 
 
+def _keep_alive():
+    """Render 무료 플랜 슬립 방지 — 10분마다 자기 자신에게 헬스체크."""
+    import requests as _req
+    port = os.environ.get("PORT", "10000")
+    url = f"http://localhost:{port}/api/health"
+    while True:
+        time.sleep(600)  # 10분
+        try:
+            _req.get(url, timeout=5)
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app):
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    import pytz
+
+    # 서버 시작 시 즉시 계산
     threading.Thread(target=_compute_top10, daemon=True).start()
+
+    # 매일 오전 8:00 KST (= 23:00 UTC) 에 자동 갱신 — 장 개장(9시) 전 준비
+    kst = pytz.timezone("Asia/Seoul")
+    scheduler = BackgroundScheduler(timezone=kst)
+    scheduler.add_job(
+        _compute_top10,
+        CronTrigger(hour=8, minute=0, timezone=kst),
+        id="daily_refresh",
+        replace_existing=True,
+    )
+    scheduler.start()
+
+    # Render 무료 플랜 슬립 방지
+    threading.Thread(target=_keep_alive, daemon=True).start()
+
     yield
+    scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="BC_STOCK", version="2.0.0", lifespan=lifespan)
