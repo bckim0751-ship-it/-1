@@ -440,7 +440,9 @@ async function loadMarketOutlook() {
     const res = await fetch(`${API}/api/market-outlook`);
     if (!res.ok) return;
     const d = await res.json();
-    if (!d || (!d.indices && !d.kr_outlook)) return;
+    if (!d) return;
+    const hasIdx = d.indices && Object.keys(d.indices).length > 0;
+    if (!hasIdx && !d.kr_outlook) return;
     renderOutlook(d);
   } catch { /* 전망 실패는 무시 */ }
 }
