@@ -14,6 +14,7 @@ from typing import Optional
 from stock_data import (
     get_us_stock_data, get_kr_stock_data,
     _get_yahoo_direct, _get_fdr,
+    _get_kr_investor_flow, analyze_investor_flow,
     search_kr_tickers, search_us_tickers,
     KR_BUILTIN, US_BUILTIN,
 )
@@ -121,11 +122,15 @@ def _quick_score_kr(ticker: str, name: str) -> Optional[dict]:
         tech = analyze_technical(hist)
         fund_score = 50  # TOP10 경로는 펀더멘털 생략 → 중립값
 
+        # 외국인·기관 수급 반영 (국내 매매 방향 핵심 변수)
+        flow_res = analyze_investor_flow(_get_kr_investor_flow(ticker))
+        tech_score = max(0, min(100, tech["score"] + flow_res["score_adj"]))
+
         pc = tech.get("price_changes", {})
         ind = tech.get("indicators", {})
         setup = tech.get("trade_setup", {})
         rsi = ind.get("rsi") or 50
-        combined_score = round((tech["score"] + fund_score) / 2)
+        combined_score = round((tech_score + fund_score) / 2)
         rec = _decide_recommendation(combined_score, setup)
 
         return {
@@ -145,6 +150,8 @@ def _quick_score_kr(ticker: str, name: str) -> Optional[dict]:
             "entry_low": setup.get("entry_low"),
             "entry_high": setup.get("entry_high"),
             "upside_pct": setup.get("upside_pct"),
+            "foreign_net_eok": flow_res["metrics"].get("foreign_net_eok"),
+            "inst_net_eok": flow_res["metrics"].get("inst_net_eok"),
         }
     except Exception:
         return None
@@ -404,6 +411,104 @@ def _get_market_context(market: str) -> dict:
     return ctx
 
 
+# ── 글로벌 증시 → 국내 증시 전망 ──────────────────────────────────────────────
+_outlook_cache: dict = {"data": {}, "ts": 0}
+_OUTLOOK_TTL = 3600  # 1시간
+
+
+def _get_global_indices() -> dict:
+    """미국·글로벌 핵심 지표 — 국내장 방향 예측 재료."""
+    out = {}
+    pairs = [
+        ("^GSPC", "S&P500"), ("^IXIC", "나스닥"),
+        ("^SOX", "필라델피아 반도체"), ("^VIX", "VIX 변동성"),
+    ]
+    for sym, label in pairs:
+        try:
+            h = _get_yahoo_direct(sym, period="5d")
+            if not h.empty and len(h) >= 2:
+                chg = float(h["Close"].pct_change().iloc[-1] * 100)
+                out[label] = {"value": round(float(h["Close"].iloc[-1]), 2), "change": round(chg, 2)}
+        except Exception:
+            pass
+    try:
+        fx = _get_yahoo_direct("KRW=X", period="5d")
+        if not fx.empty and len(fx) >= 2:
+            chg = float(fx["Close"].pct_change().iloc[-1] * 100)
+            out["USD/KRW"] = {"value": round(float(fx["Close"].iloc[-1]), 1), "change": round(chg, 2)}
+    except Exception:
+        pass
+    try:
+        from pykrx import stock as ks
+        end = datetime.today().strftime("%Y%m%d")
+        start = (datetime.today() - timedelta(days=10)).strftime("%Y%m%d")
+        idx = ks.get_index_ohlcv_by_date(start, end, "1001")  # KOSPI
+        if idx is not None and not idx.empty and len(idx) >= 2:
+            now_v = float(idx["종가"].iloc[-1]); prev = float(idx["종가"].iloc[-2])
+            out["KOSPI"] = {"value": round(now_v, 2), "change": round((now_v - prev) / prev * 100, 2)}
+    except Exception:
+        pass
+    return out
+
+
+def _generate_market_outlook() -> dict:
+    """미국 증시 흐름 기반 국내 증시 전망 — Claude Haiku."""
+    indices = _get_global_indices()
+    base = {"indices": indices}
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key or not indices:
+        return base
+    try:
+        import anthropic, json as _json, pytz
+        kst = pytz.timezone("Asia/Seoul")
+        today = datetime.now(kst).strftime("%Y년 %m월 %d일")
+        lines = "\n".join(
+            f"- {k}: {v['value']:,} ({v['change']:+.2f}%)" for k, v in indices.items()
+        )
+        prompt = f"""{today} 기준 글로벌 증시 지표입니다.
+
+{lines}
+
+당신은 국내 증시 전략가입니다. 위 미국 증시(S&P500/나스닥/필라델피아 반도체지수/VIX)와
+환율 흐름을 바탕으로, 오늘 한국 증시가 어떻게 움직일지 예측하세요.
+특히 ① 미국장 마감 흐름이 국내 개장에 미칠 영향, ② 반도체지수(SOX)와 삼성전자·SK하이닉스 연동,
+③ 환율이 외국인 수급에 미칠 영향, ④ VIX로 본 위험선호도를 짚어주세요.
+아래 JSON으로만 답하세요:
+{{
+  "us_summary": "미국 증시 마감 흐름 한 줄 요약",
+  "kr_outlook": "오늘 국내 증시 예상 흐름 2-3문장 (미국장과 연관지어 구체적으로)",
+  "direction": "강세 또는 약세 또는 혼조",
+  "watch_sectors": ["주목 섹터1 (이유 포함)", "섹터2 (이유 포함)"],
+  "special_notes": ["오늘의 특이사항/리스크1", "특이사항2"],
+  "fx_note": "환율이 외국인 수급에 미칠 영향 한 줄"
+}}"""
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        data = _json.loads(text.strip())
+        data["indices"] = indices
+        return data
+    except Exception:
+        return base
+
+
+@app.get("/api/market-outlook")
+async def market_outlook(refresh: bool = False):
+    now = time.time()
+    if refresh or (now - _outlook_cache["ts"] > _OUTLOOK_TTL) or not _outlook_cache["data"]:
+        _outlook_cache["data"] = _generate_market_outlook()
+        _outlook_cache["ts"] = now
+    return _outlook_cache["data"]
+
+
 @app.get("/api/analyze/{market}/{ticker}")
 async def analyze_stock(market: str, ticker: str):
     market = market.upper()
@@ -419,6 +524,17 @@ async def analyze_stock(market: str, ticker: str):
 
     tech = analyze_technical(data["history"])
     fund = analyze_fundamental(data["info"], market)
+
+    # 외국인·기관 수급 (KR 전용) — 기술점수에 반영 + 신호 추가
+    flow_res = {"score_adj": 0, "signals": [], "metrics": {}}
+    if market == "KR":
+        try:
+            flow_res = analyze_investor_flow(_get_kr_investor_flow(data["ticker"]))
+        except Exception:
+            pass
+    if flow_res["signals"]:
+        tech["signals"] = tech["signals"] + flow_res["signals"]
+    tech["score"] = max(0, min(100, tech["score"] + flow_res["score_adj"]))
 
     # 시장 컨텍스트 수집 (실패해도 분석 계속)
     try:
@@ -444,6 +560,7 @@ async def analyze_stock(market: str, ticker: str):
         "currency": data["currency"], "combined_score": combined_score,
         "recommendation": _decide_recommendation(combined_score, setup),
         "trade_setup": setup,
+        "investor_flow": flow_res,
         "technical": {
             "score": tech["score"], "signals": tech["signals"],
             "indicators": tech["indicators"], "price_changes": tech["price_changes"],

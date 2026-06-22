@@ -152,6 +152,107 @@ def _get_kr_fundamentals() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── 외국인·기관 수급 (KR 매매 방향에 가장 직접적인 데이터) ────────────────────
+def _get_kr_investor_flow(ticker: str, days: int = 20) -> dict:
+    """최근 N일 외국인·기관 순매수 거래대금 — pykrx.
+    국내 주식은 외국인/기관 수급이 방향을 결정하는 핵심 변수.
+    """
+    try:
+        end = datetime.today()
+        start = end - timedelta(days=days)
+        df = krx_stock.get_market_trading_value_by_investor(
+            start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), ticker
+        )
+        if df is None or df.empty or "순매수" not in df.columns:
+            return {}
+
+        def pick_net(*names):
+            for n in names:
+                if n in df.index:
+                    return float(df.loc[n, "순매수"])
+            return 0.0
+
+        foreign_net = pick_net("외국인합계", "외국인")
+        inst_net = pick_net("기관합계")
+        total_buy = 0.0
+        if "매수" in df.columns and "전체" in df.index:
+            total_buy = float(df.loc["전체", "매수"])
+
+        return {
+            "foreign_net": foreign_net,
+            "inst_net": inst_net,
+            "total_buy_value": total_buy,
+            "days": days,
+        }
+    except Exception:
+        return {}
+
+
+def analyze_investor_flow(flow: dict) -> dict:
+    """외국인·기관 수급 → 점수 보정 + 신호 메시지."""
+    if not flow:
+        return {"score_adj": 0, "signals": [], "metrics": {}}
+
+    days = flow.get("days", 20)
+    foreign = flow.get("foreign_net", 0.0)
+    inst = flow.get("inst_net", 0.0)
+    total = flow.get("total_buy_value", 0.0) or 1.0
+    f_ratio = foreign / total * 100  # 전체 매수대금 대비 비중 (방향 강도)
+    i_ratio = inst / total * 100
+
+    signals, adj = [], 0
+    eok = lambda v: f"{v / 1e8:+,.0f}억"
+
+    # 외국인 (영향력 가장 큼)
+    if f_ratio >= 2:
+        signals.append({"type": "bullish", "indicator": "외국인 수급", "message": f"외국인 {days}일 순매수 {eok(foreign)} — 강한 매집"})
+        adj += 7
+    elif f_ratio >= 0.3:
+        signals.append({"type": "bullish", "indicator": "외국인 수급", "message": f"외국인 {days}일 순매수 {eok(foreign)}"})
+        adj += 3
+    elif f_ratio <= -2:
+        signals.append({"type": "bearish", "indicator": "외국인 수급", "message": f"외국인 {days}일 순매도 {eok(foreign)} — 자금 이탈"})
+        adj -= 7
+    elif f_ratio <= -0.3:
+        signals.append({"type": "bearish", "indicator": "외국인 수급", "message": f"외국인 {days}일 순매도 {eok(foreign)}"})
+        adj -= 3
+
+    # 기관
+    if i_ratio >= 2:
+        signals.append({"type": "bullish", "indicator": "기관 수급", "message": f"기관 {days}일 순매수 {eok(inst)} — 강한 매집"})
+        adj += 5
+    elif i_ratio >= 0.3:
+        signals.append({"type": "bullish", "indicator": "기관 수급", "message": f"기관 {days}일 순매수 {eok(inst)}"})
+        adj += 2
+    elif i_ratio <= -2:
+        signals.append({"type": "bearish", "indicator": "기관 수급", "message": f"기관 {days}일 순매도 {eok(inst)} — 자금 이탈"})
+        adj -= 5
+    elif i_ratio <= -0.3:
+        signals.append({"type": "bearish", "indicator": "기관 수급", "message": f"기관 {days}일 순매도 {eok(inst)}"})
+        adj -= 2
+
+    # 쌍끌이 / 동반 이탈
+    if f_ratio >= 0.3 and i_ratio >= 0.3:
+        signals.append({"type": "bullish", "indicator": "수급 종합", "message": "외국인·기관 동반 순매수 — 수급 매우 우호적"})
+        adj += 3
+    elif f_ratio <= -0.3 and i_ratio <= -0.3:
+        signals.append({"type": "bearish", "indicator": "수급 종합", "message": "외국인·기관 동반 순매도 — 수급 악화"})
+        adj -= 3
+
+    adj = max(-15, min(15, adj))
+    return {
+        "score_adj": adj,
+        "signals": signals,
+        "metrics": {
+            "foreign_net_eok": round(foreign / 1e8),
+            "inst_net_eok": round(inst / 1e8),
+            "foreign_ratio": round(f_ratio, 1),
+            "inst_ratio": round(i_ratio, 1),
+            "days": days,
+        },
+    }
+
+
 def get_kr_stock_data(ticker: str, period_days: int = 120) -> dict:
     # Try FinanceDataReader first
     hist = _get_fdr(ticker, period_days)

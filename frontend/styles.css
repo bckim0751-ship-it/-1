@@ -218,3 +218,37 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; alig
 .briefing-caution { font-size: 13px; padding: 8px 12px; background: rgba(239,68,68,.07); border-radius: 8px; margin-top: 6px; border-left: 3px solid var(--sell); color: var(--text2); }
 
 footer { text-align: center; padding: 20px; color: var(--text2); font-size: 12px; border-top: 1px solid var(--border); margin-top: 16px; }
+
+/* ── 미국 증시 → 국내 증시 전망 ─────────────────────────────────────────── */
+.outlook-card { border-left: 3px solid var(--accent); }
+.outlook-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.outlook-dir { font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 20px; background: var(--bg3); }
+.outlook-dir.up { background: rgba(34,197,94,.15); }
+.outlook-dir.down { background: rgba(239,68,68,.15); }
+.outlook-indices { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin: 14px 0; }
+.idx-chip { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; text-align: center; }
+.idx-name { font-size: 11px; color: var(--text2); }
+.idx-val { font-size: 15px; font-weight: 700; margin: 2px 0; }
+.idx-chg { font-size: 12px; font-weight: 600; }
+.outlook-row { font-size: 14px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.outlook-row.main { font-size: 15px; }
+.outlook-tag { display: inline-block; font-size: 12px; font-weight: 700; color: var(--accent); margin-right: 8px; }
+.outlook-sectors, .outlook-notes { margin-top: 12px; font-size: 13px; }
+.outlook-sectors strong, .outlook-notes strong { display: block; margin-bottom: 6px; }
+.outlook-sectors ul, .outlook-notes ul { list-style: none; padding-left: 4px; }
+.outlook-sectors li, .outlook-notes li { padding: 3px 0 3px 14px; position: relative; color: var(--text2); }
+.outlook-sectors li::before { content: "▸"; color: var(--accent); position: absolute; left: 0; }
+.outlook-notes li::before { content: "•"; color: var(--hold); position: absolute; left: 0; }
+
+/* ── 수급 동향 (외국인·기관) ────────────────────────────────────────────── */
+.flow-card { border-left: 3px solid var(--buy); }
+.flow-period { font-size: 12px; font-weight: 400; color: var(--text2); }
+.flow-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 16px; }
+.flow-box { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+.flow-box.up { border-color: rgba(34,197,94,.4); }
+.flow-box.down { border-color: rgba(239,68,68,.4); }
+.flow-box-label { font-size: 12px; color: var(--text2); }
+.flow-box-val { font-size: 20px; font-weight: 800; margin: 4px 0; }
+.flow-box.up .flow-box-val { color: var(--buy); }
+.flow-box.down .flow-box-val { color: var(--sell); }
+.flow-box-sub { font-size: 11px; color: var(--text2); }

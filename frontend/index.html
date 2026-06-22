@@ -40,6 +40,16 @@
       </div>
     </section>
 
+    <!-- 미국 증시 → 국내 증시 전망 -->
+    <section id="outlookCard" class="card outlook-card hidden">
+      <div class="outlook-header">
+        <h2>🌐 미국 증시 → 국내 증시 전망</h2>
+        <span id="outlookDir" class="outlook-dir"></span>
+      </div>
+      <div id="outlookIndices" class="outlook-indices"></div>
+      <div id="outlookBody"></div>
+    </section>
+
     <!-- 장 전 브리핑 -->
     <section id="briefingCard" class="card briefing-card hidden">
       <h2>📰 오늘의 시장 브리핑</h2>
@@ -119,6 +129,13 @@
         <p class="setup-desc" id="setupDesc"></p>
         <div class="plan-levels" id="planLevels"></div>
         <div class="plan-rr" id="planRR"></div>
+      </section>
+
+      <!-- 수급 동향 (외국인·기관) -->
+      <section class="card flow-card hidden" id="flowCard">
+        <h2>💰 수급 동향 <span class="flow-period" id="flowPeriod"></span></h2>
+        <div class="flow-metrics" id="flowMetrics"></div>
+        <div class="signals-list" id="flowSignals"></div>
       </section>
 
       <section class="card ai-card">

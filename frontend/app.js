@@ -104,13 +104,19 @@ function renderTop10List(elId, stocks, market) {
     const rrTxt = s.risk_reward != null ? `R/R ${s.risk_reward}` : '';
     const rrCls = s.risk_reward >= 2 ? 'up' : s.risk_reward < 1 ? 'down' : 'flat';
     const setupTxt = s.setup_label ? `<span class="top10-setup grade-${s.setup_grade||'D'}">${s.setup_label}</span>` : '';
+    let flowTxt = '';
+    if (market === 'KR' && s.foreign_net_eok != null) {
+      const fcls = s.foreign_net_eok > 0 ? 'up' : s.foreign_net_eok < 0 ? 'down' : 'flat';
+      const fsign = s.foreign_net_eok > 0 ? '+' : '';
+      flowTxt = `· <span class="${fcls}">외인 ${fsign}${s.foreign_net_eok.toLocaleString()}억</span>`;
+    }
 
     return `
     <div class="top10-item" onclick="quickPick('${market}','${s.ticker}')">
       <div class="top10-rank ${rankClass}">${i+1}</div>
       <div class="top10-info">
         <div class="top10-name">${s.name} ${setupTxt}</div>
-        <div class="top10-sub">${s.ticker} · ${price} ${rrTxt ? `· <span class="${rrCls}">${rrTxt}</span>` : ''}</div>
+        <div class="top10-sub">${s.ticker} · ${price} ${rrTxt ? `· <span class="${rrCls}">${rrTxt}</span>` : ''} ${flowTxt}</div>
       </div>
       <div class="top10-changes">
         <span class="${d1.cls}">${d1.str} 1일</span><br>
@@ -294,6 +300,9 @@ function showResult(data) {
   // ── 매매 플랜 카드 ──────────────────────────────────────────────────
   renderTradePlan(data.trade_setup || {}, fmt);
 
+  // ── 수급 동향 (외국인·기관, KR 전용) ─────────────────────────────────
+  renderInvestorFlow(data.investor_flow);
+
   const ai = data.ai_recommendation;
   const badge = document.getElementById('recBadge');
   const recColors = {'적극매수':'rec-buy','매수':'rec-buy','분할매수':'rec-hold','관망':'rec-hold','회피':'rec-sell','BUY':'rec-buy','SELL':'rec-sell','HOLD':'rec-hold'};
@@ -425,5 +434,84 @@ function showChart(type, btnEl) {
   }
 }
 
+// ── 미국 증시 → 국내 증시 전망 ───────────────────────────────────────────────
+async function loadMarketOutlook() {
+  try {
+    const res = await fetch(`${API}/api/market-outlook`);
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d || (!d.indices && !d.kr_outlook)) return;
+    renderOutlook(d);
+  } catch { /* 전망 실패는 무시 */ }
+}
+
+function renderOutlook(d) {
+  const card = document.getElementById('outlookCard');
+  const idxEl = document.getElementById('outlookIndices');
+  const bodyEl = document.getElementById('outlookBody');
+  const dirEl = document.getElementById('outlookDir');
+
+  // 지표 칩
+  const idx = d.indices || {};
+  idxEl.innerHTML = Object.entries(idx).map(([k, v]) => {
+    const cls = v.change > 0 ? 'up' : v.change < 0 ? 'down' : 'flat';
+    const sign = v.change > 0 ? '+' : '';
+    return `<div class="idx-chip">
+      <div class="idx-name">${k}</div>
+      <div class="idx-val">${v.value.toLocaleString()}</div>
+      <div class="idx-chg ${cls}">${sign}${v.change}%</div>
+    </div>`;
+  }).join('');
+
+  // 방향 배지
+  if (d.direction) {
+    const dcls = d.direction === '강세' ? 'up' : d.direction === '약세' ? 'down' : 'flat';
+    dirEl.textContent = `예상: ${d.direction}`;
+    dirEl.className = 'outlook-dir ' + dcls;
+  } else {
+    dirEl.textContent = '';
+  }
+
+  // 본문
+  let html = '';
+  if (d.us_summary) html += `<div class="outlook-row"><span class="outlook-tag">🇺🇸 미국장</span>${d.us_summary}</div>`;
+  if (d.kr_outlook) html += `<div class="outlook-row main"><span class="outlook-tag">🇰🇷 국내 전망</span>${d.kr_outlook}</div>`;
+  if (d.fx_note) html += `<div class="outlook-row"><span class="outlook-tag">💱 환율</span>${d.fx_note}</div>`;
+  if (d.watch_sectors?.length) html += `<div class="outlook-sectors"><strong>👀 주목 섹터</strong><ul>${d.watch_sectors.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
+  if (d.special_notes?.length) html += `<div class="outlook-notes"><strong>⚠️ 특이사항</strong><ul>${d.special_notes.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
+  bodyEl.innerHTML = html;
+
+  card.classList.remove('hidden');
+}
+
+// ── 수급 동향 렌더링 ─────────────────────────────────────────────────────────
+function renderInvestorFlow(flow) {
+  const card = document.getElementById('flowCard');
+  if (!flow || !flow.metrics || flow.metrics.foreign_net_eok == null) {
+    card.classList.add('hidden');
+    return;
+  }
+  const m = flow.metrics;
+  document.getElementById('flowPeriod').textContent = `최근 ${m.days || 20}일`;
+
+  const box = (label, eok) => {
+    const cls = eok > 0 ? 'up' : eok < 0 ? 'down' : 'flat';
+    const sign = eok > 0 ? '+' : '';
+    return `<div class="flow-box ${cls}">
+      <div class="flow-box-label">${label}</div>
+      <div class="flow-box-val">${sign}${(eok || 0).toLocaleString()}억</div>
+      <div class="flow-box-sub">${eok > 0 ? '순매수' : eok < 0 ? '순매도' : '중립'}</div>
+    </div>`;
+  };
+  document.getElementById('flowMetrics').innerHTML =
+    box('외국인', m.foreign_net_eok) + box('기관', m.inst_net_eok);
+
+  document.getElementById('flowSignals').innerHTML = (flow.signals || []).map(s =>
+    `<div class="signal signal-${s.type}"><div class="signal-dot"></div><div><strong>${s.indicator}</strong> ${s.message}</div></div>`
+  ).join('');
+
+  card.classList.remove('hidden');
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => loadTop10());
+window.addEventListener('DOMContentLoaded', () => { loadTop10(); loadMarketOutlook(); });
