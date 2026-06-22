@@ -41,10 +41,14 @@
     </section>
 
     <!-- 미국 증시 → 국내 증시 전망 -->
-    <section id="outlookCard" class="card outlook-card hidden">
+    <section id="outlookCard" class="card outlook-card">
       <div class="outlook-header">
         <h2>🌐 미국 증시 → 국내 증시 전망</h2>
         <span id="outlookDir" class="outlook-dir"></span>
+      </div>
+      <div id="outlookLoading" style="display:flex;align-items:center;gap:12px;padding:12px 0;color:var(--text2)">
+        <div class="spinner" style="width:20px;height:20px;border-width:2px"></div>
+        <span>글로벌 지수 수집 중...</span>
       </div>
       <div id="outlookIndices" class="outlook-indices"></div>
       <div id="outlookBody"></div>

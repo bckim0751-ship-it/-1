@@ -435,20 +435,47 @@ function showChart(type, btnEl) {
 }
 
 // ── 미국 증시 → 국내 증시 전망 ───────────────────────────────────────────────
+let outlookTimer = null;
+let outlookRetries = 0;
+
 async function loadMarketOutlook() {
+  outlookRetries = 0;
+  clearTimeout(outlookTimer);
+  await pollOutlook();
+}
+
+async function pollOutlook() {
   try {
     const res = await fetch(`${API}/api/market-outlook`);
     if (!res.ok) return;
     const d = await res.json();
-    if (!d) return;
     const hasIdx = d.indices && Object.keys(d.indices).length > 0;
-    if (!hasIdx && !d.kr_outlook) return;
-    renderOutlook(d);
-  } catch { /* 전망 실패는 무시 */ }
+    const hasContent = hasIdx || d.kr_outlook;
+
+    if (hasContent) {
+      renderOutlook(d);
+      return;
+    }
+
+    // 아직 계산 중이면 계속 폴링
+    if (d.computing || !d.ready) {
+      outlookRetries++;
+      if (outlookRetries < 20) {
+        outlookTimer = setTimeout(pollOutlook, 3000);
+      } else {
+        document.getElementById('outlookLoading').innerHTML =
+          '<span style="color:var(--text2)">글로벌 지수 데이터를 가져올 수 없습니다.</span>';
+      }
+    }
+  } catch {
+    outlookRetries++;
+    if (outlookRetries < 5) outlookTimer = setTimeout(pollOutlook, 5000);
+  }
 }
 
 function renderOutlook(d) {
   const card = document.getElementById('outlookCard');
+  document.getElementById('outlookLoading').style.display = 'none';
   const idxEl = document.getElementById('outlookIndices');
   const bodyEl = document.getElementById('outlookBody');
   const dirEl = document.getElementById('outlookDir');
@@ -482,8 +509,6 @@ function renderOutlook(d) {
   if (d.watch_sectors?.length) html += `<div class="outlook-sectors"><strong>👀 주목 섹터</strong><ul>${d.watch_sectors.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
   if (d.special_notes?.length) html += `<div class="outlook-notes"><strong>⚠️ 특이사항</strong><ul>${d.special_notes.map(s => `<li>${s}</li>`).join('')}</ul></div>`;
   bodyEl.innerHTML = html;
-
-  card.classList.remove('hidden');
 }
 
 // ── 수급 동향 렌더링 ─────────────────────────────────────────────────────────

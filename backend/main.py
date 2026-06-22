@@ -306,6 +306,7 @@ async def lifespan(app):
 
     # 서버 시작 시 즉시 계산
     threading.Thread(target=_compute_top10, daemon=True).start()
+    threading.Thread(target=_compute_market_outlook, daemon=True).start()
 
     # 매일 오전 8:00 KST (= 23:00 UTC) 에 자동 갱신 — 장 개장(9시) 전 준비
     kst = pytz.timezone("Asia/Seoul")
@@ -412,7 +413,7 @@ def _get_market_context(market: str) -> dict:
 
 
 # ── 글로벌 증시 → 국내 증시 전망 ──────────────────────────────────────────────
-_outlook_cache: dict = {"data": {}, "ts": 0}
+_outlook_cache: dict = {"data": {}, "ts": 0, "computing": False}
 _OUTLOOK_TTL = 3600  # 1시간
 
 
@@ -425,14 +426,25 @@ def _get_global_indices() -> dict:
     ]
     for sym, label in pairs:
         try:
-            h = _get_yahoo_direct(sym, period="5d")
+            # 별도 스레드로 타임아웃 제어 (8초)
+            result = [pd.DataFrame()]
+            def _fetch(s=sym, r=result):
+                r[0] = _get_yahoo_direct(s, period="5d")
+            t = threading.Thread(target=_fetch, daemon=True)
+            t.start(); t.join(timeout=8)
+            h = result[0]
             if not h.empty and len(h) >= 2:
                 chg = float(h["Close"].pct_change().iloc[-1] * 100)
                 out[label] = {"value": round(float(h["Close"].iloc[-1]), 2), "change": round(chg, 2)}
         except Exception:
             pass
     try:
-        fx = _get_yahoo_direct("KRW=X", period="5d")
+        result = [pd.DataFrame()]
+        def _fx():
+            result[0] = _get_yahoo_direct("KRW=X", period="5d")
+        t = threading.Thread(target=_fx, daemon=True)
+        t.start(); t.join(timeout=8)
+        fx = result[0]
         if not fx.empty and len(fx) >= 2:
             chg = float(fx["Close"].pct_change().iloc[-1] * 100)
             out["USD/KRW"] = {"value": round(float(fx["Close"].iloc[-1]), 1), "change": round(chg, 2)}
@@ -500,13 +512,33 @@ def _generate_market_outlook() -> dict:
         return base
 
 
+def _compute_market_outlook():
+    """백그라운드 스레드에서 전망 생성 — 이벤트 루프 블로킹 방지."""
+    if _outlook_cache["computing"]:
+        return
+    _outlook_cache["computing"] = True
+    try:
+        result = _generate_market_outlook()
+        if result:
+            _outlook_cache["data"] = result
+            _outlook_cache["ts"] = time.time()
+    except Exception:
+        pass
+    finally:
+        _outlook_cache["computing"] = False
+
+
 @app.get("/api/market-outlook")
 async def market_outlook(refresh: bool = False):
     now = time.time()
-    if refresh or (now - _outlook_cache["ts"] > _OUTLOOK_TTL) or not _outlook_cache["data"]:
-        _outlook_cache["data"] = _generate_market_outlook()
-        _outlook_cache["ts"] = now
-    return _outlook_cache["data"]
+    expired = (_outlook_cache["ts"] == 0) or (now - _outlook_cache["ts"] > _OUTLOOK_TTL)
+    if (expired or refresh) and not _outlook_cache["computing"]:
+        threading.Thread(target=_compute_market_outlook, daemon=True).start()
+    return {
+        **_outlook_cache["data"],
+        "computing": _outlook_cache["computing"],
+        "ready": bool(_outlook_cache["ts"]),
+    }
 
 
 @app.get("/api/analyze/{market}/{ticker}")
